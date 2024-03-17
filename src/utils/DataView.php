@@ -83,14 +83,70 @@ class DataView
         return $value;
     }
 
+    public function getFloat16(int $byteOffset, bool $littleEndian = false): float
+    {
+        $value = $this->getUint16($byteOffset, $littleEndian);
+        $sign = ($value & 0x8000) ? -1 : 1;
+
+        $exponent = ($value & 0x7C00) >> 10;
+        $fraction = $value & 0x03FF;
+
+        if ($exponent === 0x1F) {
+            if ($fraction === 0) {
+                return $sign * INF;
+            }
+            return NAN;
+        }
+
+        if ($exponent === 0) {
+            return $sign * pow(2, -14) * ($fraction / 0x0400);
+        }
+
+        return $sign * pow(2, $exponent - 15) * (1 + $fraction / 0x0400);
+    }
+
     public function getFloat32(int $byteOffset, bool $littleEndian = false): float
     {
-        return $this->getUint32($byteOffset, $littleEndian);
+        $value = $this->getUint32($byteOffset, $littleEndian);
+        $sign = ($value & 0x80000000) ? -1 : 1;
+
+        $exponent = ($value & 0x7F800000) >> 23;
+        $fraction = $value & 0x007FFFFF;
+
+        if ($exponent === 0xFF) {
+            if ($fraction === 0) {
+                return $sign * INF;
+            }
+            return NAN;
+        }
+
+        if ($exponent === 0) {
+            return $sign * pow(2, -126) * ($fraction / 0x00800000);
+        }
+
+        return $sign * pow(2, $exponent - 127) * (1 + $fraction / 0x00800000);
     }
 
     public function getFloat64(int $byteOffset, bool $littleEndian = false): float
     {
-        return $this->getUint64($byteOffset, $littleEndian);
+        $value = $this->getUint64($byteOffset, $littleEndian);
+        $sign = ($value & 0x8000000000000000) ? -1 : 1;
+
+        $exponent = ($value & 0x7FF0000000000000) >> 52;
+        $fraction = $value & 0x000FFFFFFFFFFFFF;
+
+        if ($exponent === 0x7FF) {
+            if ($fraction === 0) {
+                return $sign * INF;
+            }
+            return NAN;
+        }
+
+        if ($exponent === 0) {
+            return $sign * pow(2, -1022) * ($fraction / 0x0010000000000000);
+        }
+
+        return $sign * pow(2, $exponent - 1023) * (1 + $fraction / 0x0010000000000000);
     }
 
     public function setUint8(int $byteOffset, int $value): void

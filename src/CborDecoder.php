@@ -77,29 +77,8 @@ class CborDecoder
 
     private function readFloat16(): float
     {
-        $tempArrayBuffer = new ArrayBuffer(4);
-        $tempDataView = new DataView($tempArrayBuffer);
-
-        $value = $this->readUint16();
-
-        $sign = $value & 0x8000;
-        $exponent = $value & 0x7c00;
-        $fraction = $value & 0x03ff;
-
-        if ($exponent === 0x7c00) {
-            $exponent = 0xff << 10;
-        } else if ($exponent !== 0) {
-            $exponent += (127 - 15) << 10;
-        } else if ($fraction !== 0) {
-            return ($sign ? -1 : 1) * $fraction * pow(2, 24);
-        }
-
-        $tempDataView->setUint32(
-            0,
-            ($sign << 16) | ($exponent << 13) | ($fraction << 13)
-        );
-
-        return $tempDataView->getFloat32(0);
+        $offset = $this->offset;
+        return $this->commitRead(2, $this->view->getFloat16($offset));
     }
 
     private function readFloat32(): float
