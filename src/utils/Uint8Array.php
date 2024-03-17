@@ -40,7 +40,7 @@ class Uint8Array
 
     public function byteLength(): int
     {
-        return $this->buffer->byteLength();
+        return $this->buffer->count();
     }
 
     public function byteOffset(): int

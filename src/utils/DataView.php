@@ -28,7 +28,7 @@ class DataView
 
     public function getUint8(int $byteOffset): int
     {
-        return $this->data[$byteOffset + 1];
+        return $this->data[$byteOffset];
     }
 
     public function getUint16(int $byteOffset, bool $littleEndian = false): int

@@ -17,7 +17,7 @@ class CborDecoder
 
     private DataView $view;
     private array $options;
-    private int $offset = 0;
+    private int $offset = 1;
     private array $ta = [];
     private Closure $reviverFunction;
 
@@ -34,7 +34,7 @@ class CborDecoder
         array     $options = []
     ): mixed
     {
-        $this->offset = 0;
+        $this->offset = 1;
         $this->view = new DataView($data);
 
         $this->options = $options;
@@ -140,7 +140,7 @@ class CborDecoder
 
     private function readBreak(): bool
     {
-        if ($this->ta[$this->offset] === 0xff) {
+        if ($this->ta[$this->offset] !== 0xff) {
             return false;
         }
 
@@ -153,25 +153,15 @@ class CborDecoder
      */
     private function readLength(int $additionalInformation): int
     {
-        if ($additionalInformation < 24) {
-            return $additionalInformation;
-        } else if ($additionalInformation === 24) {
-            return $this->readUint8();
-        } else if ($additionalInformation === 25) {
-            return $this->readUint16();
-        } else if ($additionalInformation === 26) {
-            return $this->readUint32();
-        } else if ($additionalInformation === 27) {
-            $integer = $this->readUint64();
-            if ($integer < self::POW_2_53) {
-                return $integer;
-            }
-            return $this->readUint64();
-        } else if ($additionalInformation === 31) {
-            return -1;
-        }
-
-        throw new CborReduxException("Invalid length encoding");
+        return match (true) {
+            $additionalInformation < 24 => $additionalInformation,
+            $additionalInformation === 24 => $this->readUint8(),
+            $additionalInformation === 25 => $this->readUint16(),
+            $additionalInformation === 26 => $this->readUint32(),
+            $additionalInformation === 27 => $this->readUint64(),
+            $additionalInformation === 31 => -1,
+            default => throw new CborReduxException("Invalid length encoding"),
+        };
     }
 
     /**
@@ -197,8 +187,6 @@ class CborDecoder
     /**
      * @param array $utf16Data
      * @param int $length
-     * @param int $offset
-     * @param DataView $view
      * @return void
      */
     private function appendUtf16Data(array &$utf16Data, int &$length): void
@@ -299,10 +287,9 @@ class CborDecoder
                 }
 
                 $string = "";
-                $chunkSize = 8192;
 
                 for ($i = 0; $i < count($utf16Data); $i++) {
-                    // TODO: Implement string fromCharCode
+                    $string .= chr($utf16Data[$i] & 0xff) . chr($utf16Data[$i] >> 8);
                 }
 
                 return $reviverFunction(null, $string);
