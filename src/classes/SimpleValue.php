@@ -5,13 +5,11 @@ namespace Beau\CborReduxPhp\classes;
 use Beau\CborReduxPhp\enums\Semantic;
 use InvalidArgumentException;
 
-readonly class SimpleValue
+class SimpleValue
 {
-    private Semantic $semantic;
+    public readonly Semantic $semantic;
 
-    public function __construct(
-        private int $value
-    )
+    public function __construct(public readonly int $value)
     {
         $this->semantic = match (true) {
             $value === 20 => Semantic::FALSE,
@@ -30,16 +28,6 @@ readonly class SimpleValue
             Semantic::TRUE => true,
             default => null
         };
-    }
-
-    public function getValue(): int
-    {
-        return $this->value;
-    }
-
-    public function getSemantic(): Semantic
-    {
-        return $this->semantic;
     }
 
     /**

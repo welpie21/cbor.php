@@ -7,6 +7,7 @@ use Countable;
 use Iterator;
 use SplFixedArray;
 
+
 class ArrayBuffer implements Iterator, ArrayAccess, Countable
 {
     private array $buffer;
@@ -40,7 +41,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
         $this->buffer[$index] = $value;
     }
 
-    public function current()
+    public function current(): mixed
     {
         return $this->buffer->offsetGet($this->index);
     }
@@ -69,8 +70,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
     {
         return $this->buffer->offsetExists($offset);
     }
-
-    public function offsetGet(mixed $offset)
+    public function offsetGet(mixed $offset): mixed
     {
         return $this->buffer->offsetGet($offset);
     }

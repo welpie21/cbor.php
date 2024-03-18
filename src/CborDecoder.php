@@ -4,8 +4,9 @@ namespace Beau\CborReduxPhp;
 
 use Beau\CborReduxPhp\classes\Sequence;
 use Beau\CborReduxPhp\classes\SimpleValue;
+use Beau\CborReduxPhp\classes\TaggedValue;
+use Beau\CborReduxPhp\enums\Tag;
 use Beau\CborReduxPhp\exceptions\CborReduxException;
-use Beau\CborReduxPhp\utils\ArrayBuffer;
 use Beau\CborReduxPhp\utils\DataView;
 use Beau\CborReduxPhp\utils\Uint8Array;
 use Closure;
@@ -13,12 +14,10 @@ use Exception;
 
 class CborDecoder
 {
-    const POW_2_53 = 9007199254740992;
-
     private DataView $view;
     private array $options;
     private int $offset = 1;
-    private array $ta = [];
+    private Uint8Array $ta;
     private Closure $reviverFunction;
 
     /**
@@ -36,6 +35,7 @@ class CborDecoder
     {
         $this->offset = 1;
         $this->view = new DataView($data);
+        $this->ta = new Uint8Array($data);
 
         $this->options = $options;
         $this->reviverFunction = $reviver ?? fn($key, $value) => $value;
@@ -71,50 +71,43 @@ class CborDecoder
 
     private function readArrayBuffer(int $length)
     {
-        $intArray = new Uint8Array($this->ta, $this->offset, $length);
+        $intArray = $this->ta->buffer->slice($this->offset, $this->offset + $length);
         return $this->commitRead($length, $intArray);
     }
 
     private function readFloat16(): float
     {
-        $offset = $this->offset;
-        return $this->commitRead(2, $this->view->getFloat16($offset));
+        return $this->commitRead(2, $this->view->getFloat16($this->offset));
     }
 
     private function readFloat32(): float
     {
-        $offset = $this->offset;
-        return $this->commitRead(4, $this->view->getFloat32($offset));
+        return $this->commitRead(4, $this->view->getFloat32($this->offset));
     }
 
     private function readFloat64(): float
     {
-        $offset = $this->offset;
-        return $this->commitRead(8, $this->view->getFloat64($offset));
+        return $this->commitRead(8, $this->view->getFloat64($this->offset));
     }
 
     private function readUint8(): int
     {
-        $offset = $this->offset;
-        return $this->commitRead(1, $this->view->getUint8($offset));
+        return $this->commitRead(1, $this->view->getUint8($this->offset));
     }
 
     private function readUint16(): int
     {
-        $offset = $this->offset;
-        return $this->commitRead(2, $this->view->getUint16($offset));
+        return $this->commitRead(2, $this->view->getUint16($this->offset));
     }
 
     private function readUint32(): int
     {
-        $offset = $this->offset;
-        return $this->commitRead(4, $this->view->getUint32($offset));
+        return $this->commitRead(4, $this->view->getUint32($this->offset));
     }
 
     private function readUint64(): int
     {
-        $offset = $this->offset;
-        return $this->commitRead(8, $this->view->getUint64($offset));
+        return $this->commitRead(8, $this->view->getUint64($this->offset));
     }
 
     private function readBreak(): bool
@@ -294,9 +287,6 @@ class CborDecoder
                 return $reviverFunction(null, $retArray);
             case 5:
                 $retObject = [];
-                // if($this->options["dictionary"] === "map") {
-                // TODO: implement?
-                // }
 
                 for ($i = 0; $i < $length || ($length < 0 && !$this->readBreak()); ++$i) {
                     $key = $this->decodeItem();
@@ -317,21 +307,36 @@ class CborDecoder
                 $value = $this->decodeItem();
                 $tag = $length;
 
-                if ($value instanceof Uint8Array) {
-                    $_offset = $value->byteOffset();
+                if (is_array($value)) {
+                    $value = new Uint8Array($value);
+                    $_offset = $this->offset;
+
                     $buffer = $value->buffer->slice(
                         $_offset,
                         $_offset + $value->byteLength()
                     );
 
-                    // TODO: implement all the tags to support the different types
+                    // since php doesn't have native binary data type we can safely decode this into an array.
+                    // We can let people decide what to do with the data themselves.
+                    switch ($tag) {
+                        case Tag::TagUint8:
+                        case Tag::TagUint16:
+                        case Tag::TagUint32:
+                        case Tag::TagInt8:
+                        case Tag::TagInt16:
+                        case Tag::TagInt32:
+                        case Tag::TagFloat32:
+                        case Tag::TagFloat64:
+                            return $reviverFunction(null, new TaggedValue($tag, $buffer->toArray()));
+                    }
                 }
+
+                return $reviverFunction($tag, new TaggedValue($tag, $value));
             case 7:
                 return match ($length) {
-                    20 => false,
-                    21 => true,
-                    22 => null,
-                    23 => $reviverFunction(null, null),
+                    20 => $reviverFunction(null, false),
+                    21 => $reviverFunction(null, true),
+                    22, 23 => $reviverFunction(null, null),
                     default => $reviverFunction(null, new SimpleValue($length)),
                 };
         }
@@ -345,7 +350,7 @@ class CborDecoder
     public static function parse(string $data, ?callable $reviver = null, array $options = []): mixed
     {
         $decoder = new CborDecoder();
-        $binary = unpack("C*", $data);
+        $binary = unpack("C*", hex2bin($data));
 
         if ($binary === false) {
             throw new CborReduxException("Failed to unpack binary data");

@@ -2,9 +2,6 @@
 
 namespace Beau\CborReduxPhp\utils;
 
-
-use SplFixedArray;
-
 class DataView
 {
     private array $data;
@@ -99,7 +96,7 @@ class DataView
         }
 
         if ($exponent === 0) {
-            return $sign * pow(2, -14) * ($fraction / 0x0400);
+            return $sign * 6.103515625E-5 * ($fraction / 0x0400);
         }
 
         return $sign * pow(2, $exponent - 15) * (1 + $fraction / 0x0400);
