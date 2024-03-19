@@ -209,4 +209,28 @@ class DataView
     {
         $this->setUint64($byteOffset, $value, $littleEndian);
     }
+
+    public function setBigUint64(int $byteOffset, int $value, bool $littleEndian = false): void
+    {
+        // Ensure byte offset is within the range of the data array
+        if ($byteOffset < 0 || $byteOffset + 8 > count($this->data)) {
+            throw new \OutOfRangeException('Byte offset out of range');
+        }
+
+        // Split the 64-bit integer into 8 bytes
+        $bytes = [];
+        for ($i = 0; $i < 8; $i++) {
+            $bytes[] = ($value >> (8 * (7 - $i))) & 0xFF;
+        }
+
+        // If little-endian, reverse the byte order
+        if ($littleEndian) {
+            $bytes = array_reverse($bytes);
+        }
+
+        // Set the bytes at the specified byte offset
+        for ($i = 0; $i < 8; $i++) {
+            $this->data[$byteOffset + $i] = $bytes[$i];
+        }
+    }
 }
