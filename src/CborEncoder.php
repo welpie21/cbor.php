@@ -2,6 +2,9 @@
 
 namespace Beau\CborReduxPhp;
 
+use Beau\CborReduxPhp\classes\Sequence;
+use Beau\CborReduxPhp\classes\SimpleValue;
+use Beau\CborReduxPhp\classes\TaggedValue;
 use Beau\CborReduxPhp\enums\Cbor;
 use Beau\CborReduxPhp\exceptions\CborReduxException;
 use Beau\CborReduxPhp\utils\ArrayBuffer;
@@ -12,6 +15,7 @@ use Closure;
 class CborEncoder
 {
     const POW_2_32 = 4294967296;
+    const POW_2_53 = 9007199254740992;
 
     private ArrayBuffer $data;
     private DataView $view;
@@ -20,7 +24,10 @@ class CborEncoder
     private int $offset = 0;
     private Closure $replacer;
 
-    private function encode(mixed $value, Closure|array|null $replacer)
+    /**
+     * @throws CborReduxException
+     */
+    public function encode(mixed $value, Closure|array|null $replacer = null): array
     {
         // check if replacer is a function
         if (is_callable($replacer)) {
@@ -32,12 +39,23 @@ class CborEncoder
                 return Cbor::OMIT_VALUE;
             };
         } else {
-            $this->replacer = fn($key, $value) => $value;
+            $replacer = $this->replacer = fn($key, $value) => $value;
         }
 
         $this->data = new ArrayBuffer(256);
         $this->view = new DataView($this->data);
         $this->byteView = new Uint8Array($this->data);
+
+        $this->encodeItem($replacer(Cbor::EMPTY_KEY, $value));
+
+        $ret = new ArrayBuffer($this->offset);
+        $retView = new DataView($ret);
+
+        for($i = 0; $i < $this->offset; ++$i) {
+            $retView->setUint8($i, $this->view->getUint8($i));
+        }
+
+        return $ret->toArray();
     }
 
     private function prepareWrite(int $length): DataView
@@ -167,19 +185,141 @@ class CborEncoder
         }
     }
 
-    private function writeArray(array $value)
+    private function writeArray(array $value): void
     {
+        $startOffset = $this->offset;
+        $length = count($value);
+        $total = 0;
 
+        $this->writeTypeAndLength(4, $length);
+
+        $typeLengthOffset = $this->offset;
+        $replacer = $this->replacer;
+
+        for ($i = 0; $i < $length; $i++) {
+            $result = $replacer($i, $value[$i]);
+            if ($result === Cbor::OMIT_VALUE) continue;
+            $this->encodeItem($result);
+            $total++;
+        }
+
+        if ($length > $total) {
+            $encoded = $this->byteView->buffer->slice($typeLengthOffset, $this->offset);
+            $this->offset = $startOffset;
+            $this->writeTypeAndLength(4, $total);
+            $this->writeUint8Array($encoded->toArray());
+        }
     }
 
-//    private function writeDictionary(array $value)
-//    {
-//
-//    }
-
-    private function sortEncodedKeys(int $length)
+    private function writeDictionary(array $value)
     {
+        $encodedMap = [];
+        $startOffset = $this->offset;
 
+        $typeLengthOffset = $this->offset;
+        $keyCount = count($value);
+        $keyTotal = 0;
+
+        $replacer = $this->replacer;
+
+        // check if the keys of the value are that of a map
+        if ($this->hasKeyValuePairs($value)) {
+            $this->writeTypeAndLength(5, $keyCount);
+            $typeLengthOffset = $this->offset;
+
+            foreach ($value as $key => $val) {
+                $result = $replacer($key, $value);
+
+                if ($result === Cbor::OMIT_VALUE) {
+                    continue;
+                }
+
+                $cursor = $this->offset;
+                $this->encodeItem($key);
+
+                $keyBytes = $this->byteView->buffer->slice($cursor, $this->offset);
+                $cursor = $this->offset;
+                $this->encodeItem($result);
+
+                $valueBytes = $this->byteView->buffer->slice($cursor, $this->offset);
+                $keyTotal++;
+
+                $encodedMap[] = [$keyBytes, $valueBytes];
+            }
+        } else {
+            $keys = array_keys($value);
+            $this->writeTypeAndLength(5, $keyCount);
+            $typeLengthOffset = $this->offset;
+
+            for ($i = 0; $i < $keyCount; $i++) {
+                $key = $keys[$i];
+                $result = $replacer($key, $value[$key]);
+
+                if ($result === Cbor::OMIT_VALUE) {
+                    continue;
+                }
+
+                $cursor = $this->offset;
+                $this->encodeItem($key);
+
+                $keyBytes = $this->byteView->buffer->slice($cursor, $this->offset);
+                $cursor = $this->offset;
+
+                $this->encodeItem($result);
+                $valueBytes = $this->byteView->buffer->slice($cursor, $this->offset);
+
+                $keyTotal++;
+                $encodedMap[] = [$keyBytes, $valueBytes];
+            }
+        }
+
+        $encodedMapLength = count($encodedMap);
+        if ($keyCount > $keyTotal) {
+            if ($encodedMapLength > 1) {
+                $this->sortEncodedKeys(
+                    $encodedMap,
+                    $startOffset,
+                    $keyTotal,
+                    $encodedMapLength
+                );
+            } else {
+                $encoded = $this->byteView->buffer->slice($typeLengthOffset, $this->offset);
+                $this->offset = $startOffset;
+                $this->writeTypeAndLength(5, $keyTotal);
+                $this->writeUint8Array($encoded->toArray());
+            }
+        } else {
+            if ($encodedMapLength > 1) {
+                $this->sortEncodedKeys(
+                    $encodedMap,
+                    $startOffset,
+                    $keyTotal,
+                    $encodedMapLength
+                );
+            }
+        }
+    }
+
+    private function sortEncodedKeys(
+        array &$encodedMap,
+        int   $startOffset,
+        int   $keyTotal,
+        int   $length
+    ): void
+    {
+        $this->offset = $startOffset;
+        $this->writeTypeAndLength(5, $keyTotal);
+
+        // sort the encoded keys
+        $encodedMap = sort($encodedMap, function ($a, $b) {
+            return $this->lexicographicalCompare($a, $b);
+        });
+
+        for ($i = 0; $i < $length; $i++) {
+            [$encodedKey, $encodedValue] = $encodedMap[$i];
+            $this->writeUint8Array($encodedKey);
+            $this->writeUint8Array($encodedValue);
+        }
     }
 
     /**
@@ -206,16 +346,15 @@ class CborEncoder
         }
     }
 
-    private function encodeItem(mixed $value)
+    /**
+     * @throws CborReduxException
+     */
+    private function encodeItem(mixed $value): void
     {
-//        if ($value === Encode::OMIT_VALUE) {
-//            return;
-//        } else if ($value === false) {
-//            return $this->writeUint8(0xf4);
-//        }
+        $replacer = $this->replacer;
 
         switch (true) {
-            case $value === Encode::OMIT_VALUE:
+            case $value === Cbor::OMIT_VALUE:
                 return;
             case $value === false:
                 $this->writeUint8(0xf4);
@@ -228,22 +367,98 @@ class CborEncoder
                 break;
             case $this->objectIs($value, -0):
                 $this->writeUint8Array([0xf9, 0x80, 0x00]); // <-- unsure
+                break;
+            case is_string($value):
+                $utf8Data = [];
+                $strLength = strlen($value);
+
+                for ($i = 0; $i < $strLength; ++$i) {
+                    $charCode = ord($value[$i]);
+                    if ($charCode < 0x80) {
+                        $utf8Data[] = $charCode;
+                    } else if ($charCode < 0x800) {
+                        $utf8Data[] = 0xc0 | ($charCode >> 6);
+                        $utf8Data[] = 0x80 | ($charCode & 0x3f);
+                    } else if ($charCode < 0xd800 || $charCode >= 0xe000) {
+                        $utf8Data[] = 0xe0 | ($charCode >> 12);
+                        $utf8Data[] = 0x80 | (($charCode >> 6) & 0x3f);
+                        $utf8Data[] = 0x80 | ($charCode & 0x3f);
+                    } else {
+                        $charCode = ($charCode & 0x3ff) << 10;
+                        $charCode != ord($value[++$i]) & 0x3ff;
+                        $charCode += 0x10000;
+
+                        $utf8Data[] = 0xf0 | ($charCode >> 18);
+                        $utf8Data[] = 0x80 | (($charCode >> 12) & 0x3f);
+                        $utf8Data[] = 0x80 | (($charCode >> 6) & 0x3f);
+                        $utf8Data[] = 0x80 | ($charCode & 0x3f);
+                    }
+                }
+
+                $this->writeTypeAndLength(3, count($utf8Data));
+                $this->writeUint8Array($utf8Data);
+                break;
+            case is_int($value):
+                if ((int)floor($value) === $value) {
+                    if (0 <= $value && $value <= self::POW_2_53) {
+                        $this->writeTypeAndLength(0, $value);
+                        break;
+                    } else if (-self::POW_2_53 <= $value && $value < 0) {
+                        $this->writeTypeAndLength(1, -($value + 1));
+                        break;
+                    }
+                }
+
+                $this->writeUint8(0xfb);
+                $this->writeFloat64($value);
+                break;
+            default:
+                if (is_array($value)) {
+                    $this->writeArray($replacer(Cbor::EMPTY_KEY, $value));
+                } else if ($value instanceof TaggedValue) {
+                    $this->writeVarUint($value->tag, 0b11000000);
+                    $this->encodeItem($value->value);
+                } else if ($value instanceof SimpleValue) {
+                    $this->writeTypeAndLength(7, $value->value);
+                } else if ($value instanceof Sequence) {
+                    if ($this->offset !== 0) throw new CborReduxException("A Cbor Sequence may not be nested.");
+                    $length = $value->size();
+                    for ($i = 0; $i < $length; $i++) $this->encodeItem($value->get($i));
+                } else {
+                    $this->writeDictionary($value);
+                }
+                break;
         }
     }
 
-    private function objectIs(mixed $x, mixed $y)
+    private function objectIs(mixed $x, mixed $y): bool
     {
         // ...
 
-        if($x === $y) {
+        if ($x === $y) {
             return $x !== 0 || 1 / $x === 1 / $y;
         }
 
         return $x !== $x && $y !== $y;
     }
 
-    private static function encode(mixed $value, Closure $replacer = null)
+    private function hasKeyValuePairs(array $value): bool
     {
+        $i = 0;
+        foreach ($value as $key => $val) {
+            if ($key !== $i++) return true;
+        }
+        return false;
+    }
 
+    private function lexicographicalCompare(Uint8Array $left, Uint8Array $right) {
+        $minLength = min($left->byteLength(), $right->byteLength());
+
+        for($i = 0; $i < $minLength; $i++) {
+            $result = $left->buffer->offsetGet($i) - $right->buffer->offsetGet($i);
+            if($result !== 0) return $result;
+        }
+
+        return $left->byteLength() - $right->byteLength();
     }
 }

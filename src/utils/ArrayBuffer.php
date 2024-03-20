@@ -87,7 +87,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
 
     public function count(): int
     {
-        return $this->buffer->getSize();
+        return count($this->buffer);
     }
 
     public function toArray(): array
