@@ -2,12 +2,8 @@
 
 namespace Beau\CborReduxPhp\classes;
 
-class TaggedValue
+use Beau\CborReduxPhp\abstracts\AbstractTaggedValue;
+
+class TaggedValue extends AbstractTaggedValue
 {
-    public function __construct(
-        public readonly int   $tag,
-        public readonly mixed $value
-    )
-    {
-    }
 }

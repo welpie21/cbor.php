@@ -31,8 +31,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
 
     public function slice(int $start, int $end): ArrayBuffer
     {
-        $buffer = clone $this->buffer;
-        $sliced = array_slice($buffer, $start, $end - $start);
+        $sliced = array_slice($this->buffer, $start, $end - $start);
         return new ArrayBuffer($sliced);
     }
 
@@ -43,7 +42,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
 
     public function current(): mixed
     {
-        return $this->buffer->offsetGet($this->index);
+        return $this->buffer[$this->index];
     }
 
     public function next(): void
@@ -58,7 +57,7 @@ class ArrayBuffer implements Iterator, ArrayAccess, Countable
 
     public function valid(): bool
     {
-        return $this->index < $this->buffer->getSize();
+        return $this->index < count($this->buffer);
     }
 
     public function rewind(): void
