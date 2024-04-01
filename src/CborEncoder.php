@@ -3,8 +3,6 @@
 namespace Beau\CborReduxPhp;
 
 use Beau\CborReduxPhp\abstracts\AbstractTaggedValue;
-use Beau\CborReduxPhp\classes\SimpleValue;
-use Beau\CborReduxPhp\classes\TaggedValue;
 use Beau\CborReduxPhp\exceptions\CborReduxException;
 use Closure;
 
@@ -16,11 +14,6 @@ class CborEncoder
         24 => "C",
         25 => "n",
         26 => "N"
-    ];
-
-    private static array $floatPackType = [
-        26 => "f",
-        27 => "d"
     ];
 
     public function __construct(?Closure $replacer = null)
@@ -121,8 +114,36 @@ class CborEncoder
 
     private function packString(string $value): void
     {
-        $this->packNumber(3 << 5, strlen($value));
-        $this->buffer .= $value;
+        $length = strlen($value);
+
+        if ($length < 250) {
+            $this->packNumber(3 << 5, $length);
+            $this->buffer .= $value;
+        } else {
+            $this->packIndefiniteString($value);
+        }
+    }
+
+    private function packIndefiniteString(string $value): void
+    {
+        // start indefinite string - 5F
+        $this->packInitialByte(3 << 5, 31);
+
+        // pack string chunks
+        $chunks = str_split($value, 250);
+
+        foreach ($chunks as $chunk) {
+
+            // pack chunk length
+            $chunkLength = strlen($chunk);
+            $this->packNumber(3 << 5, $chunkLength);
+
+            // pack chunk
+            $this->buffer .= $chunk;
+        }
+
+        // end indefinite string - FF
+        $this->packInitialByte(7 << 5, 31);
     }
 
     private function packBoolean(bool $value): void
@@ -177,7 +198,8 @@ class CborEncoder
                 break;
             case $value instanceof AbstractTaggedValue:
                 $this->packNumber(6 << 5, $value->tag);
-                $this->encode($value->value);
+                $value = ($this->replacer)($value->tag, $value);
+                $this->encode($value);
                 break;
             case is_nan($value):
                 $this->packUndefined();
