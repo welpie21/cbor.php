@@ -1,28 +1,57 @@
 <?php
 
+use Beau\CborReduxPhp\CborEncoder;
+use Beau\CborReduxPhp\classes\TaggedValue;
+
 require_once "vendor/autoload.php";
 
-$hex = "920102030405060708090A0B2BFBC02AD8D84CB2B6200E19BCA5830102038301020379031F62656175206973206865726520736168696475617369756420686975646861737569686475696173686469752061736869756173206468617369756468617369756420686173697520646861736475206961687320756961736864206975617364696173642069617368647569206173687569646861736475696861736475697361686469756173686469756173646869752068617369756468207361697520626561752069732068657265207361686964756173697564206869756468617375696864756961736864697520617368697561732064686173697564686173697564206861736975206468617364752069616873207569617368642069756173646961736420696173686475692061736875696468617364756968617364756973616864697561736864697561736468697520686173697564682073616975206265617520697320686572652073616869647561736975642068697564686173756968647569617368646975206173686975617320646861736975646861736975642068617369752064686173647520696168732075696173686420697561736469617364206961736864756920617368756964686173647569686173647569736168646975617368646975617364686975206861736975646820736169752062656175206973206865726520736168696475617369756420686975646861737569686475696173686469752061736869756173206468617369756468617369756420686173697520646861736475206961687320756961736864206975617364696173642069617368647569206173687569646861736475696861736475697361686469756173686469756173646869752068617369756468207361697520626561752069732068657265207361686964756173697564206869756468617375696864756961736864697520617368697561732064686173697564686173697564206861736975206468617364752069616873207569617368642069756173646961736420696173686475692061736875696468617364756968617364756973616864697561736864697561736468697520686173697564682073616975";
+//$ts2 = microtime(true);
+//$y = json_encode([344, 245, 2.0, -100]);
+//$te2 = microtime(true);
+//var_dump($te2 - $ts2);
 
-$time_start = microtime(true);
+class MyTaggedValue extends \Beau\CborReduxPhp\abstracts\AbstractTaggedValue
+{
+    public function __construct(string $data)
+    {
+        parent::__construct(0, $data . "Hello World!");
+    }
+}
 
-$decoded = \Beau\CborReduxPhp\CborDecoder::parse(hex2bin($hex), function(mixed $additional, mixed $value) {
+$tagged = new TaggedValue(0, "hello world");
+
+$ts1 = microtime(true);
+$cbor = new CborEncoder(function ($tag, $value) {
+
+    var_dump($tag);
+
+    if (get_parent_class($value) === "Beau\CborReduxPhp\abstracts\AbstractTaggedValue") {
+        return $value->value . " and Hello beau";
+    }
+
     return $value;
 });
 
-$time_end = microtime(true);
+$y = $cbor->encode([
+    344,
+    245,
+    2.0,
+    -2.0,
+    -100,
+    true,
+    false,
+    null,
+    [
+        "a" => 1,
+        "b" => 2,
+        "c" => 3,
+        "d" => 4
+    ],
+    // string repeated 256 times
+//    str_repeat("a", 500),
+    $tagged
+]);
 
-
-
-var_dump($decoded);
-echo "Time: " . ($time_end - $time_start) . "\n";
-
-$json = '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, -12, -13.423525235, 14, 48293, [1, 2, 3], [1, 2, 3], "beau is here sahiduasiud hiudhasuihduiashdiu ashiuas dhasiudhasiud hasiu dhasdu iahs uiashd iuasdiasd iashdui ashuidhasduihasduisahdiuashdiuasdhiu hasiudh saiu beau is here sahiduasiud hiudhasuihduiashdiu ashiuas dhasiudhasiud hasiu dhasdu iahs uiashd iuasdiasd iashdui ashuidhasduihasduisahdiuashdiuasdhiu hasiudh saiu beau is here sahiduasiud hiudhasuihduiashdiu ashiuas dhasiudhasiud hasiu dhasdu iahs uiashd iuasdiasd iashdui ashuidhasduihasduisahdiuashdiuasdhiu hasiudh saiu beau is here sahiduasiud hiudhasuihduiashdiu ashiuas dhasiudhasiud hasiu dhasdu iahs uiashd iuasdiasd iashdui ashuidhasduihasduisahdiuashdiuasdhiu hasiudh saiu beau is here sahiduasiud hiudhasuihduiashdiu ashiuas dhasiudhasiud hasiu dhasdu iahs uiashd iuasdiasd iashdui ashuidhasduihasduisahdiuashdiuasdhiu hasiudh saiu"]';
-$time_start = microtime(true);
-$encoded = json_decode($json);
-$time_end = microtime(true);
-
-echo "Time: " . ($time_end - $time_start) . "\n";
-
-// 9007199254740992
-// 9007199254740992
+$te1 = microtime(true);
+var_dump($te1 - $ts1);
+var_dump(bin2hex($y));

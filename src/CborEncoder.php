@@ -196,7 +196,7 @@ class CborEncoder
             case is_null($value):
                 $this->packNull();
                 break;
-            case $value instanceof AbstractTaggedValue:
+            case get_parent_class($value) === AbstractTaggedValue::class:
                 $this->packNumber(6 << 5, $value->tag);
                 $value = ($this->replacer)($value->tag, $value);
                 $this->encode($value);
