@@ -116,7 +116,7 @@ class CborEncoder
     {
         $length = strlen($value);
 
-        if ($length < 250) {
+        if ($length < 255) {
             $this->packNumber(3 << 5, $length);
             $this->buffer .= $value;
         } else {
@@ -126,19 +126,11 @@ class CborEncoder
 
     private function packIndefiniteString(string $value): void
     {
-        // start indefinite string - 5F
+        // start indefinite string - 7F
         $this->packInitialByte(3 << 5, 31);
 
-        // pack string chunks
-        $chunks = str_split($value, 250);
-
-        foreach ($chunks as $chunk) {
-
-            // pack chunk length
-            $chunkLength = strlen($chunk);
-            $this->packNumber(3 << 5, $chunkLength);
-
-            // pack chunk
+        foreach (str_split($value, 255) as $chunk) {
+            $this->packNumber(3 << 5, strlen($chunk));
             $this->buffer .= $chunk;
         }
 
@@ -156,9 +148,9 @@ class CborEncoder
         $this->packInitialByte(7 << 5, 22);
     }
 
-    private function packUndefined(): void
+    private function packNaN(): void
     {
-        $this->packInitialByte(7 << 5, 23);
+        $this->packInitialByte(7 << 5, 25);
     }
 
     /**
@@ -197,12 +189,12 @@ class CborEncoder
                 $this->packNull();
                 break;
             case get_parent_class($value) === AbstractTaggedValue::class:
-                $this->packNumber(6 << 5, $value->tag);
+                $this->packInitialByte(6 << 5, $value->tag);
                 $value = ($this->replacer)($value->tag, $value);
                 $this->encode($value);
                 break;
             case is_nan($value):
-                $this->packUndefined();
+                $this->packNaN();
                 break;
         }
 
