@@ -4,12 +4,14 @@ namespace Beau\CborReduxPhp;
 
 use Beau\CborReduxPhp\abstracts\AbstractTaggedValue;
 use Beau\CborReduxPhp\exceptions\CborReduxException;
+use Beau\CborReduxPhp\utils\CborByteString;
 use Closure;
 
 class CborEncoder
 {
     private string $buffer;
     private Closure $replacer;
+
     private static array $lengthPackType = [
         24 => "C",
         25 => "n",
@@ -112,30 +114,19 @@ class CborEncoder
         return array_keys($array) !== range(0, $length - 1);
     }
 
-    private function packString(string $value): void
+    private function packString(string $value, bool $byte = false): void
     {
         $length = strlen($value);
 
-        if ($length < 255) {
+        if ($byte) {
+            $this->packNumber(2 << 5, $length);
+            foreach (unpack("H*", $value) as $byteString) {
+                $this->buffer .= hex2bin($byteString);
+            }
+        } else {
             $this->packNumber(3 << 5, $length);
             $this->buffer .= $value;
-        } else {
-            $this->packIndefiniteString($value);
         }
-    }
-
-    private function packIndefiniteString(string $value): void
-    {
-        // start indefinite string - 7F
-        $this->packInitialByte(3 << 5, 31);
-
-        foreach (str_split($value, 255) as $chunk) {
-            $this->packNumber(3 << 5, strlen($chunk));
-            $this->buffer .= $chunk;
-        }
-
-        // end indefinite string - FF
-        $this->packInitialByte(7 << 5, 31);
     }
 
     private function packBoolean(bool $value): void
@@ -192,6 +183,9 @@ class CborEncoder
                 $this->packInitialByte(6 << 5, $value->tag);
                 $value = ($this->replacer)($value->tag, $value);
                 $this->encode($value);
+                break;
+            case get_class($value) === CborByteString::class:
+                $this->packString($value->getByteString(), true);
                 break;
             case is_nan($value):
                 $this->packNaN();
