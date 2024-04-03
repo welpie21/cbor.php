@@ -157,6 +157,8 @@ class CborEncoder
      */
     public function encode(mixed $value): string
     {
+        $this->buffer = "";
+
         switch (true) {
             case is_int($value):
                 $this->packInt($value);
