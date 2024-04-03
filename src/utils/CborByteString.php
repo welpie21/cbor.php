@@ -1,6 +1,6 @@
 <?php
 
-namespace Beau\CborReduxPhp\utils;
+namespace Beau\CborPHP\utils;
 
 class CborByteString
 {

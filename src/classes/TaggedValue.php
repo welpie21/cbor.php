@@ -1,8 +1,8 @@
 <?php
 
-namespace Beau\CborReduxPhp\classes;
+namespace Beau\CborPHP\classes;
 
-use Beau\CborReduxPhp\abstracts\AbstractTaggedValue;
+use Beau\CborPHP\abstracts\AbstractTaggedValue;
 
 class TaggedValue extends AbstractTaggedValue
 {

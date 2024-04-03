@@ -1,6 +1,6 @@
 <?php
 
-namespace Beau\CborReduxPhp\enums;
+namespace Beau\CborPHP\enums;
 
 enum Tag: int
 {

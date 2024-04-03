@@ -1,9 +1,8 @@
 <?php
 
-namespace Beau\CborReduxPhp\classes;
+namespace Beau\CborPHP\classes;
 
 use OutOfRangeException;
-use SplFixedArray;
 
 class Sequence
 {

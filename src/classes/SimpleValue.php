@@ -1,6 +1,6 @@
 <?php
 
-namespace Beau\CborReduxPhp\classes;
+namespace Beau\CborPHP\classes;
 
 use Beau\CborReduxPhp\enums\Semantic;
 use InvalidArgumentException;

@@ -1,14 +1,14 @@
 <?php
 
-namespace Beau\CborReduxPhp;
+namespace Beau\CborPHP;
 
-use Beau\CborReduxPhp\classes\Sequence;
-use Beau\CborReduxPhp\classes\SimpleValue;
-use Beau\CborReduxPhp\classes\TaggedValue;
-use Beau\CborReduxPhp\enums\Tag;
-use Beau\CborReduxPhp\exceptions\CborReduxException;
-use Beau\CborReduxPhp\utils\DataView;
-use Beau\CborReduxPhp\utils\Uint8Array;
+use Beau\CborPHP\classes\Sequence;
+use Beau\CborPHP\classes\SimpleValue;
+use Beau\CborPHP\classes\TaggedValue;
+use Beau\CborPHP\enums\Tag;
+use Beau\CborPHP\exceptions\CborReduxException;
+use Beau\CborPHP\utils\DataView;
+use Beau\CborPHP\utils\Uint8Array;
 use Closure;
 use Exception;
 

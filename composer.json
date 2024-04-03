@@ -1,0 +1,26 @@
+{
+    "name": "beau/cbor.php",
+    "type": "library",
+    "homepage": "https://github.com/welpie21/cbor.php",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Beau\\CborPHP\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "beau",
+            "email": "beaudenheijer@gmail.com"
+        }
+    ],
+    "scripts": {
+        "test-coverage": "./vendor/bin/phpunit -c phpunit.xml"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "10.5.10",
+        "phpunit/php-code-coverage": "^10.1",
+        "phpstan/phpstan-beberlei-assert": "^1.1.2",
+        "nikic/php-parser": "^v4.16.0"
+    }
+}

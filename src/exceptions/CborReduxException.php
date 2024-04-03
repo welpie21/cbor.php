@@ -1,6 +1,6 @@
 <?php
 
-namespace Beau\CborReduxPhp\exceptions;
+namespace Beau\CborPHP\exceptions;
 
 use Exception;
 

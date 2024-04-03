@@ -1,6 +1,6 @@
 <?php
 
-namespace Beau\CborReduxPhp\abstracts;
+namespace Beau\CborPHP\abstracts;
 
 abstract class AbstractTaggedValue
 {

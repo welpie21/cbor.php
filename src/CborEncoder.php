@@ -1,10 +1,10 @@
 <?php
 
-namespace Beau\CborReduxPhp;
+namespace Beau\CborPHP;
 
-use Beau\CborReduxPhp\abstracts\AbstractTaggedValue;
-use Beau\CborReduxPhp\exceptions\CborReduxException;
-use Beau\CborReduxPhp\utils\CborByteString;
+use Beau\CborPHP\exceptions\CborReduxException;
+use Beau\CborPHP\abstracts\AbstractTaggedValue;
+use Beau\CborPHP\utils\CborByteString;
 use Closure;
 
 class CborEncoder
