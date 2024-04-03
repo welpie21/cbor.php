@@ -10,27 +10,30 @@ use PHPUnit\Framework\TestCase;
 class CborTest extends TestCase
 {
     private static CborEncoder $encoder;
-    private static CborDecoder $decoder;
 
     public static function setUpBeforeClass(): void
     {
         self::$encoder = new CborEncoder();
-        self::$decoder = new CborDecoder();
 
         parent::setUpBeforeClass();
     }
 
     /**
      * @throws CborReduxException
+     * @throws \Exception
      */
     public function testEncodeInt()
     {
-        $encoded = self::$encoder->encode(10);
-        $encoded = bin2hex($encoded);
+        $data = [10, 1000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000];
 
-        $decoded = CborDecoder::parse($encoded);
-        var_dump($decoded[0]);
+        foreach ($data as $value) {
 
-        $this->assertEquals(10, $decoded[0]);
+            $encoded = self::$encoder->encode($value);
+            $encoded = bin2hex($encoded);
+
+            $decoded = CborDecoder::parse($encoded);
+
+            $this->assertEquals($value, $decoded[0]);
+        }
     }
 }
