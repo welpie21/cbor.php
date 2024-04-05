@@ -49,11 +49,7 @@ class CborEncoder
 
     private function packBigInt(int $value): void
     {
-        $this->buffer .= pack(
-            "NN",
-            ($value & 0xffffffff00000000) >> 32,
-            ($value & 0x00000000ffffffff)
-        );
+        $this->buffer .= pack("J", $value);
     }
 
     private function getLength(int $value): ?int
