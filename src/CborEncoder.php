@@ -18,10 +18,15 @@ class CborEncoder
         26 => "N"
     ];
 
-    public function __construct(?Closure $replacer = null)
+    /**
+     * @throws CborReduxException
+     */
+    public function __construct(mixed $value, ?Closure $replacer = null)
     {
         $this->replacer = $replacer ?? fn($key, $value) => $value;
         $this->buffer = "";
+
+        $this->encodeItem($value);
     }
 
     private function packInitialByte(int $majorType, int $additionalInfo): void
@@ -151,7 +156,7 @@ class CborEncoder
     /**
      * @throws CborReduxException
      */
-    public function encodeItem(mixed $value)
+    private function encodeItem(mixed $value): void
     {
         switch (true) {
             case is_int($value):
@@ -192,11 +197,9 @@ class CborEncoder
     /**
      * @throws CborReduxException
      */
-    public static function encode(mixed $value): string
+    public static function encode(mixed $value, ?Closure $replacer = null): string
     {
-        $encoder = new self();
-        $encoder->encodeItem($value);
-
+        $encoder = new self($value, $replacer);
         return bin2hex($encoder->getResult());
     }
 }
