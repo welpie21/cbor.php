@@ -79,7 +79,7 @@ class CborEncoder
         foreach ($array as $key => $value) {
             $encodeList = $isMap ? [$key, $value] : [$value];
             foreach ($encodeList as $item) {
-                $this->encode($item);
+                $this->encodeItem($item);
             }
         }
     }
@@ -151,10 +151,8 @@ class CborEncoder
     /**
      * @throws CborReduxException
      */
-    public function encode(mixed $value): string
+    public function encodeItem(mixed $value)
     {
-        $this->buffer = "";
-
         switch (true) {
             case is_int($value):
                 $this->packInt($value);
@@ -189,7 +187,16 @@ class CborEncoder
                 $this->packNaN();
                 break;
         }
+    }
 
-        return $this->getResult();
+    /**
+     * @throws CborReduxException
+     */
+    public static function encode(mixed $value): string
+    {
+        $encoder = new self();
+        $encoder->encodeItem($value);
+
+        return bin2hex($encoder->getResult());
     }
 }
