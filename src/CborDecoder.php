@@ -4,8 +4,9 @@ namespace Beau\CborPHP;
 
 use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
+use Beau\CborPHP\classes\TaggedValue;
+use Beau\CborPHP\exceptions\CborException;
 use Closure;
-use Exception;
 
 class CborDecoder
 {
@@ -29,7 +30,7 @@ class CborDecoder
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeArray(int $additional): array
     {
@@ -44,12 +45,12 @@ class CborDecoder
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeInt(int $additional, bool $signed = false): int
     {
         if ($additional <= 23) {
-            return $additional;
+            return $signed ? -($additional + 1) : $additional;
         }
 
         $byteLength = self::$byteLength[$additional];
@@ -59,17 +60,17 @@ class CborDecoder
             2 => IntHelper::getUint16($this->buffer, $this->offset),
             4 => IntHelper::getUint32($this->buffer, $this->offset),
             8 => IntHelper::getUint64($this->buffer, $this->offset),
-            default => throw new Exception("Invalid byte length: " . $byteLength)
+            default => throw new CborException("Invalid byte length: " . $byteLength . " for additional: " . $additional)
         };
 
-        $value = $signed ? (-1 - $value) : $value;
+        $value = $signed ? -($value + 1) : $value;
         $this->offset += $byteLength;
 
         return $value;
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeMap(int $additional): array
     {
@@ -86,7 +87,7 @@ class CborDecoder
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeString(int $additional): string
     {
@@ -101,27 +102,50 @@ class CborDecoder
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeByteString(int $additional): string
     {
+        $string = "";
         $length = $this->decodeInt($additional);
-        $byteString = "";
 
         for ($i = 0; $i < $length; $i++) {
-            var_dump($this->buffer[$this->offset++]);
+            $string .= chr($this->buffer[$this->offset++]);
         }
 
-        return $byteString;
-    }
-
-    private function decodeTag(int $additional): mixed
-    {
-        return $additional;
+        return $string;
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
+     */
+    private function decodeTag(int $additional): mixed
+    {
+        $tag = $this->decodeInt($additional);
+        $value = $this->decodeNext();
+
+        return $this->replacer->call($this, null, new TaggedValue($tag, $value));
+    }
+
+    /**
+     * @throws CborException
+     */
+    private function decodeFloat(int $additional): float
+    {
+        $byteLength = self::$byteLength[$additional];
+        $value = match ($byteLength) {
+            2 => FloatHelper::getFloat16($this->buffer, $this->offset),
+            4 => FloatHelper::getFloat32($this->buffer, $this->offset),
+            8 => FloatHelper::getFloat64($this->buffer, $this->offset),
+            default => throw new CborException("Invalid byte length: " . $byteLength . " for additional: " . $additional)
+        };
+
+        $this->offset += $byteLength;
+        return $value;
+    }
+
+    /**
+     * @throws CborException
      */
     private function decodeSimple(int $additional): bool|null|float
     {
@@ -129,15 +153,13 @@ class CborDecoder
             20 => false,
             21 => true,
             22, 23 => null,
-            25 => FloatHelper::getFloat16($this->buffer, $this->offset),
-            26 => FloatHelper::getFloat32($this->buffer, $this->offset),
-            27 => FloatHelper::getFloat64($this->buffer, $this->offset),
-            default => throw new Exception("Unsupported simple value: $additional")
+            25, 26, 27 => $this->decodeFloat($additional),
+            default => throw new CborException("Unsupported simple value: $additional")
         };
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     private function decodeNext(): mixed
     {
@@ -154,12 +176,12 @@ class CborDecoder
             5 => $this->decodeMap($additionalInfo),
             6 => $this->decodeTag($additionalInfo),
             7 => $this->decodeSimple($additionalInfo),
-            default => throw new Exception("Unsupported major tag: $majorTag")
+            default => throw new CborException("Unsupported major tag: $majorTag")
         };
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     public function decodeItem(): mixed
     {
@@ -167,17 +189,18 @@ class CborDecoder
     }
 
     /**
-     * @throws Exception
+     * @throws CborException
      */
     public static function decode(string $data, ?Closure $replacer = null): mixed
     {
         $binary = hex2bin($data);
 
         if ($binary === false) {
-            throw new Exception("Invalid hex string");
+            throw new CborException("Invalid hex string");
         }
 
         $decoder = new CborDecoder(unpack("C*", $binary), $replacer);
+
         return $decoder->decodeItem();
     }
 }

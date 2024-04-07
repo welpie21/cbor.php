@@ -2,7 +2,7 @@
 
 namespace Beau\CborPHP;
 
-use Beau\CborPHP\exceptions\CborReduxException;
+use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\abstracts\AbstractTaggedValue;
 use Beau\CborPHP\utils\CborByteString;
 use Closure;
@@ -19,7 +19,7 @@ class CborEncoder
     ];
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      */
     public function __construct(mixed $value, ?Closure $replacer = null)
     {
@@ -68,7 +68,7 @@ class CborEncoder
     }
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      */
     private function encodeArray(array $array): void
     {
@@ -92,7 +92,7 @@ class CborEncoder
     private function packInt(int $value): void
     {
         if ($value < 0) {
-            $this->packNumber(32, abs($value) - 1);
+            $this->packNumber(1 << 5, abs($value) - 1);
         } else {
             $this->packNumber(0, $value);
         }
@@ -100,14 +100,13 @@ class CborEncoder
 
     private function packDouble(float $value): void
     {
+        if (is_nan($value)) {
+            $this->packNaN();
+            return;
+        }
+
         $this->packInitialByte(7 << 5, 27);
         $this->buffer .= strrev(pack("d", $value));
-    }
-
-    private function packFloat(float $value): void
-    {
-        $this->packInitialByte(7 << 5, 26);
-        $this->buffer .= strrev(pack("f", $value));
     }
 
     private function isAssoc(array $array, int $length): bool
@@ -142,7 +141,7 @@ class CborEncoder
 
     private function packNaN(): void
     {
-        $this->packInitialByte(7 << 5, 25);
+        $this->buffer .= hex2bin("f97e00"); // War crime has been committed here.
     }
 
     /**
@@ -154,7 +153,7 @@ class CborEncoder
     }
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      */
     private function encodeItem(mixed $value): void
     {
@@ -164,9 +163,6 @@ class CborEncoder
                 break;
             case is_double($value):
                 $this->packDouble($value);
-                break;
-            case is_float($value):
-                $this->packFloat($value);
                 break;
             case is_string($value):
                 $this->packString($value);
@@ -188,14 +184,11 @@ class CborEncoder
             case get_class($value) === CborByteString::class:
                 $this->packString($value->getByteString(), true);
                 break;
-            case is_nan($value):
-                $this->packNaN();
-                break;
         }
     }
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      */
     public static function encode(mixed $value, ?Closure $replacer = null): string
     {

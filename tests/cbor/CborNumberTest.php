@@ -4,22 +4,18 @@ namespace Beau\tests\cbor;
 
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\CborDecoder;
-use Beau\CborPHP\exceptions\CborReduxException;
+use Beau\CborPHP\exceptions\CborException;
 use PHPUnit\Framework\TestCase;
 
 class CborNumberTest extends TestCase
 {
-    private static CborEncoder $encoder;
-
     public static function setUpBeforeClass(): void
     {
-        self::$encoder = new CborEncoder();
-
         parent::setUpBeforeClass();
     }
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      * @throws \Exception
      */
     public function testInt()
@@ -64,19 +60,15 @@ class CborNumberTest extends TestCase
 
         foreach ($data as $value) {
 
-            $encoded = self::$encoder->encode($value);
-            $encoded = bin2hex($encoded);
+            $encoded = CborEncoder::encode($value);
+            $decoded = CborDecoder::decode($encoded);
 
-            $decoded = CborDecoder::parse($encoded);
-
-            var_dump($decoded[0]);
-
-            $this->assertEquals($value, $decoded[0]);
+            $this->assertEquals($value, $decoded);
         }
     }
 
     /**
-     * @throws CborReduxException
+     * @throws CborException
      * @throws \Exception
      */
     public function testFloat(): void
@@ -84,20 +76,72 @@ class CborNumberTest extends TestCase
         $data = [
             1.0,
             10.0,
+            100.0,
+            1000.0,
+            10_000.0,
+            100_000.0,
+            1_000_000.0,
+            10_000_000.0,
+            100_000_000.0,
+            1_000_000_000.0,
+            10_000_000_000.0,
+            100_000_000_000.0,
+            1_000_000_000_000.0,
+            10_000_000_000_000.0,
+            100_000_000_000_000.0,
+            1_000_000_000_000_000.0,
+            10_000_000_000_000_000.0,
+            100_000_000_000_000_000.0,
+            1_000_000_000_000_000_000.0,
+            -1_000_000_000_000_000_000.0,
+            -100_000_000_000_000_000.0,
+            -10_000_000_000_000_000.0,
+            -1_000_000_000_000.0,
+            -100_000_000_000.0,
+            -10_000_000_000.0,
+            -1_000_000_000.0,
+            -100_000_000.0,
+            -10_000_000.0,
+            -1_000_000.0,
+            -100_000.0,
+            -10_000.0,
+            -1_000.0,
+            -100.0,
             -10.0,
             -1.0,
         ];
 
         foreach ($data as $value) {
 
-            $encoded = self::$encoder->encode($value);
-            $encoded = bin2hex($encoded);
+            $encoded = CborEncoder::encode($value);
+            $decoded = CborDecoder::decode($encoded);
 
-            $decoded = CborDecoder::parse($encoded);
+            $this->assertEquals($value, $decoded);
+        }
+    }
 
-            var_dump($decoded[0]);
+    /**
+     * @throws CborException
+     */
+    public function testComplexFloatDecimals(): void
+    {
+        $data = [
+            10.47294,
+            100.47294,
+            31295.47294,
+            100_000.47294,
+            -10.47294,
+            -100.47294,
+            -31295.47294,
+            -100_000.47294,
+        ];
 
-            $this->assertEquals($value, $decoded[0]);
+        foreach ($data as $value) {
+
+            $encoded = CborEncoder::encode($value);
+            $decoded = CborDecoder::decode($encoded);
+
+            $this->assertEquals($value, $decoded);
         }
     }
 }
