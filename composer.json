@@ -4,7 +4,7 @@
     "homepage": "https://github.com/welpie21/cbor.php",
     "description": "A CBOR encoder/decoder for PHP",
     "keywords": ["cbor", "cbor-php", "cbor-encoder", "cbor-decoder"],
-    "version": "1.0.0",
+    "version": "1.0.1",
     "require": {
         "php": ">=8.0"
     },
