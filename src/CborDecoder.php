@@ -193,14 +193,7 @@ class CborDecoder
      */
     public static function decode(string $data, ?Closure $replacer = null): mixed
     {
-        $binary = hex2bin($data);
-
-        if ($binary === false) {
-            throw new CborException("Invalid hex string");
-        }
-
-        $decoder = new CborDecoder(unpack("C*", $binary), $replacer);
-
+        $decoder = new CborDecoder(unpack("C*", $data), $replacer);
         return $decoder->decodeItem();
     }
 }

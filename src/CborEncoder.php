@@ -193,6 +193,6 @@ class CborEncoder
     public static function encode(mixed $value, ?Closure $replacer = null): string
     {
         $encoder = new self($value, $replacer);
-        return bin2hex($encoder->getResult());
+        return $encoder->getResult();
     }
 }
