@@ -4,7 +4,7 @@ namespace Beau\CborPHP\abstracts;
 
 abstract class AbstractTaggedValue
 {
-    public readonly int $tag;
+    public int $tag;
     public mixed $value;
 
     public function __construct(
