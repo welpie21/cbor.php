@@ -1,5 +1,5 @@
 {
-    "name": "beau/cbor.php",
+    "name": "welpie21/cbor.php",
     "type": "library",
     "homepage": "https://github.com/welpie21/cbor.php",
     "description": "A CBOR encoder/decoder for PHP",
