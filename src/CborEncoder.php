@@ -9,7 +9,7 @@ use Closure;
 
 class CborEncoder
 {
-    private string $buffer;
+    private string $buffer = "";
     private Closure $replacer;
 
     private static array $lengthPackType = [
@@ -24,8 +24,6 @@ class CborEncoder
     public function __construct(mixed $value, ?Closure $replacer = null)
     {
         $this->replacer = $replacer ?? fn($key, $value) => $value;
-        $this->buffer = "";
-
         $this->encodeItem($value);
     }
 
@@ -178,12 +176,14 @@ class CborEncoder
                 break;
             case get_parent_class($value) === AbstractTaggedValue::class:
                 $this->packInitialByte(6 << 5, $value->tag);
-                $value = ($this->replacer)($value->tag, $value);
-                $this->encode($value);
+                $this->encodeItem($value->value);
                 break;
             case get_class($value) === CborByteString::class:
                 $this->packString($value->getByteString(), true);
                 break;
+            default:
+                $value = $this->replacer->call($this, null, $value);
+                $this->encodeItem($value);
         }
     }
 
