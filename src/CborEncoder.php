@@ -109,7 +109,7 @@ class CborEncoder
 
     private function isAssoc(array $array, int $length): bool
     {
-        return array_keys($array) !== range(0, $length - 1);
+        return !array_is_list($array);
     }
 
     private function packString(string $value, bool $byte = false): void
