@@ -6,7 +6,7 @@
     "keywords": ["cbor", "cbor-php", "cbor-encoder", "cbor-decoder"],
     "version": "1.0.1",
     "require": {
-        "php": ">=8.0"
+        "php": ">=8.1"
     },
     "license": "MIT",
     "autoload": {
