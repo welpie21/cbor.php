@@ -79,10 +79,14 @@ class CborEncoder
 
         $this->packNumber($majorType, $arrayLength);
 
-        foreach ($array as $key => $value) {
-            $encodeList = $isMap ? [$key, $value] : [$value];
-            foreach ($encodeList as $item) {
-                $this->encodeItem($item);
+        if ($isMap) {
+            foreach ($array as $key => $value) {
+                $this->encodeItem($key);
+                $this->encodeItem($value);
+            }
+        } else {
+            foreach ($array as $value) {
+                $this->encodeItem($value);
             }
         }
     }
@@ -118,9 +122,7 @@ class CborEncoder
 
         if ($byte) {
             $this->packNumber(2 << 5, $length);
-            foreach (unpack("H*", $value) as $byteString) {
-                $this->buffer .= hex2bin($byteString);
-            }
+            $this->buffer .= $value;
         } else {
             $this->packNumber(3 << 5, $length);
             $this->buffer .= $value;
@@ -174,11 +176,11 @@ class CborEncoder
             case is_null($value):
                 $this->packNull();
                 break;
-            case get_parent_class($value) === AbstractTaggedValue::class:
+            case $value instanceof AbstractTaggedValue:
                 $this->packInitialByte(6 << 5, $value->tag);
                 $this->encodeItem($value->value);
                 break;
-            case get_class($value) === CborByteString::class:
+            case $value instanceof CborByteString:
                 $this->packString($value->getByteString(), true);
                 break;
             default:
