@@ -10,7 +10,7 @@ use Closure;
 
 class CborDecoder
 {
-    private array $buffer;
+    private string $buffer;
     private int $offset;
     private Closure $replacer;
 
@@ -21,9 +21,9 @@ class CborDecoder
         27 => 8
     ];
 
-    private function __construct(array $buffer, ?Closure $replacer)
+    private function __construct(string $buffer, ?Closure $replacer)
     {
-        $this->offset = 1;
+        $this->offset = 0;
         $this->buffer = $buffer;
 
         $this->replacer = $replacer ?? fn($key, $value) => $value;
@@ -91,14 +91,10 @@ class CborDecoder
      */
     private function decodeString(int $additional): string
     {
-        $string = "";
         $length = $this->decodeInt($additional);
-
-        for ($i = 0; $i < $length; $i++) {
-            $string .= chr($this->buffer[$this->offset++]);
-        }
-
-        return $string;
+        $result = substr($this->buffer, $this->offset, $length);
+        $this->offset += $length;
+        return $result;
     }
 
     /**
@@ -106,14 +102,10 @@ class CborDecoder
      */
     private function decodeByteString(int $additional): string
     {
-        $string = "";
         $length = $this->decodeInt($additional);
-
-        for ($i = 0; $i < $length; $i++) {
-            $string .= chr($this->buffer[$this->offset++]);
-        }
-
-        return $string;
+        $result = substr($this->buffer, $this->offset, $length);
+        $this->offset += $length;
+        return $result;
     }
 
     /**
@@ -163,7 +155,7 @@ class CborDecoder
      */
     private function decodeNext(): mixed
     {
-        $byte = $this->buffer[$this->offset++];
+        $byte = ord($this->buffer[$this->offset++]);
         $majorTag = $byte >> 5;
         $additionalInfo = $byte & 0x1F;
 
@@ -193,7 +185,7 @@ class CborDecoder
      */
     public static function decode(string $data, ?Closure $replacer = null): mixed
     {
-        $decoder = new CborDecoder(unpack("C*", $data), $replacer);
+        $decoder = new CborDecoder($data, $replacer);
         return $decoder->decodeItem();
     }
 }
