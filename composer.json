@@ -25,7 +25,7 @@
         "benchmark": "./vendor/bin/phpbench run benchmarks --report=aggregate"
     },
     "require-dev": {
-        "phpunit/phpunit": "10.5.10",
+        "phpunit/phpunit": "^10.5.63",
         "phpunit/php-code-coverage": "^10.1",
         "phpstan/phpstan-beberlei-assert": "^1.1.2",
         "nikic/php-parser": "^v4.16.0",
