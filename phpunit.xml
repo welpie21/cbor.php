@@ -12,11 +12,6 @@
       <directory>tests/cbor</directory>
     </testsuite>
   </testsuites>
-  <coverage>
-    <report>
-      <html outputDirectory="coverage"/>
-    </report>
-  </coverage>
   <source>
     <include>
       <directory suffix=".php">src</directory>
