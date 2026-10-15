@@ -118,14 +118,13 @@ $decoded->tag;   // 1
 $decoded->value; // 1705316400
 ```
 
-> [!IMPORTANT]
-> The encoder supports tag numbers `0` to `23` only. A larger tag number gives incorrect output. The decoder reads all tag numbers.
+A tag number is an unsigned integer. The encoder throws a `CborException` for a negative tag number.
 
 ## Custom types
 
 A replacer is a closure that converts values. It has the signature `function (mixed $key, mixed $value): mixed`. The `$key` argument is always `null`.
 
-- **Encoder replacer:** The encoder calls it for each value that has no CBOR mapping, for example an object. Return a value that the encoder supports.
+- **Encoder replacer:** The encoder calls it for each value that has no CBOR mapping, for example an object. Return a value that the encoder supports. If the return value has no CBOR mapping, the encoder throws a `CborException`. If you return an array or a tagged value, the encoder sends the unsupported values in it to the replacer.
 - **Decoder replacer:** The decoder calls it for each tagged value, with a `TaggedValue` as `$value`. The return value replaces the tagged value in the result. The decoder does not call it for other values.
 
 This example stores a `Money` object as tag `20`, and then restores it:
@@ -161,12 +160,9 @@ $money = CborDecoder::decode($bytes, function ($key, $value) {
 // Money { cents: 1999, currency: 'EUR' }
 ```
 
-> [!WARNING]
-> The encoder replacer must convert every unsupported value. If it returns the same value, or if you encode an object without a replacer, the encoder calls itself until PHP runs out of memory.
-
 ## Errors
 
-The library throws `Beau\CborPHP\exceptions\CborException` for data it cannot process. The message starts with `Cbor Exception:`.
+The library throws `Beau\CborPHP\exceptions\CborException` for data it cannot process. For example, the decoder throws it for truncated input, and the encoder throws it for a value that has no CBOR mapping. The message starts with `Cbor Exception:`.
 
 ```php
 use Beau\CborPHP\CborDecoder;
@@ -182,12 +178,10 @@ try {
 
 ## Limitations
 
-- The encoder writes tag numbers `0` to `23` only.
 - The encoder writes every float as a 64-bit float, except `NAN`.
-- The library does not support indefinite-length arrays, maps, or strings.
-- Integers must fit in the PHP signed 64-bit range.
+- The library does not support indefinite-length arrays, maps, or strings. The decoder throws a `CborException` for them.
+- Integers, lengths, and tag numbers must fit in the PHP signed 64-bit range. The decoder throws a `CborException` for a larger value.
 - The decoder reads one CBOR item. It ignores bytes after that item.
-- The decoder expects complete, valid input. Truncated input can cause PHP warnings instead of a `CborException`.
 - The decoder does not validate UTF-8 in text strings.
 
 ## Development

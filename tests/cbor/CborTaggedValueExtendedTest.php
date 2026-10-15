@@ -4,14 +4,15 @@ use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\exceptions\CborException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
  * Tests CBOR tagged values (major type 6) beyond the basic use case.
  *
  * Tags 0–23 are encoded with the tag number directly in the initial byte's
- * additional-info field. Tags 0–23 are enough to cover the most common
- * standard CBOR tags (datetime, epoch, bignum, base64url, etc.).
+ * additional-info field. Larger tags follow the initial byte as a 1-, 2-, 4-
+ * or 8-byte big-endian argument, the same way as integers.
  */
 class CborTaggedValueExtendedTest extends TestCase
 {
@@ -247,5 +248,64 @@ class CborTaggedValueExtendedTest extends TestCase
         $this->assertInstanceOf(TaggedValue::class, $decoded);
         $this->assertSame(1, $decoded->tag);
         $this->assertSame(10, $decoded->value);
+    }
+
+    public static function largeTagProvider(): array
+    {
+        return [
+            'tag 24 (smallest 1-byte argument)' => [24, "d818"],
+            'tag 32' => [32, "d820"],
+            'tag 255 (largest 1-byte argument)' => [255, "d8ff"],
+            'tag 256 (smallest 2-byte argument)' => [256, "d90100"],
+            'tag 65535 (largest 2-byte argument)' => [65535, "d9ffff"],
+            'tag 65536 (smallest 4-byte argument)' => [65536, "da00010000"],
+            'tag 4294967296 (smallest 8-byte argument)' => [4294967296, "db0000000100000000"],
+            'tag PHP_INT_MAX (largest supported)' => [PHP_INT_MAX, "db7fffffffffffffff"],
+        ];
+    }
+
+    /**
+     * @throws CborException
+     */
+    #[DataProvider('largeTagProvider')]
+    public function testLargeTagEncodesWithMultiByteArgument(int $tag, string $expectedHeaderHex): void
+    {
+        // The tag header is followed by the text string "x" (0x61 0x78)
+        $encoded = CborEncoder::encode(new TaggedValue($tag, "x"));
+        $this->assertSame($expectedHeaderHex . "6178", bin2hex($encoded));
+    }
+
+    /**
+     * @throws CborException
+     */
+    #[DataProvider('largeTagProvider')]
+    public function testLargeTagRoundtrip(int $tag): void
+    {
+        $decoded = CborDecoder::decode(CborEncoder::encode(new TaggedValue($tag, "x")));
+
+        $this->assertInstanceOf(TaggedValue::class, $decoded);
+        $this->assertSame($tag, $decoded->tag);
+        $this->assertSame("x", $decoded->value);
+    }
+
+    public static function negativeTagProvider(): array
+    {
+        return [
+            'tag -1' => [-1],
+            'tag PHP_INT_MIN' => [PHP_INT_MIN],
+        ];
+    }
+
+    /**
+     * Tag numbers are unsigned, so a negative tag has no CBOR encoding.
+     *
+     * @throws CborException
+     */
+    #[DataProvider('negativeTagProvider')]
+    public function testNegativeTagThrows(int $tag): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Tag number must not be negative: $tag");
+        CborEncoder::encode(new TaggedValue($tag, "x"));
     }
 }

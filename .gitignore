@@ -2,3 +2,4 @@
 .idea
 coverage
 phpunit.xml.bak
+.phpunit.result.cache

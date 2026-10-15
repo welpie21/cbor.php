@@ -11,6 +11,7 @@ use Closure;
 class CborDecoder
 {
     private string $buffer;
+    private int $length;
     private int $offset;
     private Closure $replacer;
 
@@ -25,8 +26,24 @@ class CborDecoder
     {
         $this->offset = 0;
         $this->buffer = $buffer;
+        $this->length = strlen($buffer);
 
         $this->replacer = $replacer ?? fn($key, $value) => $value;
+    }
+
+    // The bounds checks are written inline and only call these on failure,
+    // since a method call per item measurably slows down decoding.
+    private function unexpectedEnd(int $byteCount): CborException
+    {
+        $available = $this->length - $this->offset;
+        return new CborException("Unexpected end of data at offset {$this->offset}: need $byteCount byte(s), $available available");
+    }
+
+    private function invalidAdditionalInfo(int $additional): CborException
+    {
+        return new CborException($additional === 31
+            ? "Indefinite-length items are not supported"
+            : "Invalid additional information: $additional");
     }
 
     /**
@@ -53,13 +70,21 @@ class CborDecoder
             return $signed ? -($additional + 1) : $additional;
         }
 
-        $byteLength = self::$byteLength[$additional];
+        $byteLength = self::$byteLength[$additional] ?? throw $this->invalidAdditionalInfo($additional);
+
+        if ($this->offset + $byteLength > $this->length) {
+            throw $this->unexpectedEnd($byteLength);
+        }
 
         $value = match ($byteLength) {
             1 => IntHelper::getUint8($this->buffer, $this->offset),
             2 => IntHelper::getUint16($this->buffer, $this->offset),
             4 => IntHelper::getUint32($this->buffer, $this->offset),
-            8 => IntHelper::getUint64($this->buffer, $this->offset),
+            // A uint64 at or above 2^63 wraps to a negative int. Rejecting it here also covers
+            // string/array/map lengths and tag numbers, which all come from this argument.
+            8 => ($value = IntHelper::getUint64($this->buffer, $this->offset)) >= 0
+                ? $value
+                : throw new CborException("Argument out of range at offset {$this->offset}: exceeds PHP_INT_MAX"),
             default => throw new CborException("Invalid byte length: " . $byteLength . " for additional: " . $additional)
         };
 
@@ -92,6 +117,9 @@ class CborDecoder
     private function decodeString(int $additional): string
     {
         $length = $this->decodeInt($additional);
+        if ($this->offset + $length > $this->length) {
+            throw $this->unexpectedEnd($length);
+        }
         $result = substr($this->buffer, $this->offset, $length);
         $this->offset += $length;
         return $result;
@@ -103,6 +131,9 @@ class CborDecoder
     private function decodeByteString(int $additional): string
     {
         $length = $this->decodeInt($additional);
+        if ($this->offset + $length > $this->length) {
+            throw $this->unexpectedEnd($length);
+        }
         $result = substr($this->buffer, $this->offset, $length);
         $this->offset += $length;
         return $result;
@@ -125,6 +156,9 @@ class CborDecoder
     private function decodeFloat(int $additional): float
     {
         $byteLength = self::$byteLength[$additional];
+        if ($this->offset + $byteLength > $this->length) {
+            throw $this->unexpectedEnd($byteLength);
+        }
         $value = match ($byteLength) {
             2 => FloatHelper::getFloat16($this->buffer, $this->offset),
             4 => FloatHelper::getFloat32($this->buffer, $this->offset),
@@ -155,7 +189,8 @@ class CborDecoder
      */
     private function decodeNext(): mixed
     {
-        $byte = ord($this->buffer[$this->offset++]);
+        $byte = ord($this->buffer[$this->offset] ?? throw $this->unexpectedEnd(1));
+        $this->offset++;
         $majorTag = $byte >> 5;
         $additionalInfo = $byte & 0x1F;
 
