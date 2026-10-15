@@ -94,7 +94,8 @@ class CborEncoder
     private function packInt(int $value): void
     {
         if ($value < 0) {
-            $this->packNumber(1 << 5, abs($value) - 1);
+            // -1 - $value, not abs($value) - 1: abs(PHP_INT_MIN) overflows to float.
+            $this->packNumber(1 << 5, -1 - $value);
         } else {
             $this->packNumber(0, $value);
         }

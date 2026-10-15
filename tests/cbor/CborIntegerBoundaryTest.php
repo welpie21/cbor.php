@@ -221,6 +221,17 @@ class CborIntegerBoundaryTest extends TestCase
     /**
      * @throws CborException
      */
+    public function testPhpIntMinRoundtrip(): void
+    {
+        // PHP_INT_MIN → -1 - PHP_INT_MIN = PHP_INT_MAX (uint64, major type 1)
+        $encoded = CborEncoder::encode(PHP_INT_MIN);
+        $this->assertSame("3b7fffffffffffffff", bin2hex($encoded));
+        $this->assertSame(PHP_INT_MIN, CborDecoder::decode($encoded));
+    }
+
+    /**
+     * @throws CborException
+     */
     public function testRfc7049Example1(): void
     {
         // RFC 7049 Appendix A: 1 → 0x01

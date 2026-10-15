@@ -272,7 +272,7 @@ class CborDeepNestingTest extends TestCase
     {
         $data = [
             "int"    => PHP_INT_MAX,
-            "negint" => PHP_INT_MIN + 1, // avoid -PHP_INT_MIN overflow
+            "negint" => PHP_INT_MIN,
             "float"  => M_PI,
             "str"    => str_repeat("abc", 50),
             "bool_t" => true,
