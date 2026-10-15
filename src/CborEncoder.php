@@ -179,6 +179,10 @@ class CborEncoder
                 $this->packNull();
                 break;
             case $value instanceof AbstractTaggedValue:
+                // Tag numbers are unsigned (RFC 8949, section 3.4).
+                if ($value->tag < 0) {
+                    throw new CborException("Tag number must not be negative: {$value->tag}");
+                }
                 $this->packNumber(6 << 5, $value->tag);
                 $this->encodeItem($value->value);
                 break;

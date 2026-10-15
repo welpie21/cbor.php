@@ -260,6 +260,7 @@ class CborTaggedValueExtendedTest extends TestCase
             'tag 65535 (largest 2-byte argument)' => [65535, "d9ffff"],
             'tag 65536 (smallest 4-byte argument)' => [65536, "da00010000"],
             'tag 4294967296 (smallest 8-byte argument)' => [4294967296, "db0000000100000000"],
+            'tag PHP_INT_MAX (largest supported)' => [PHP_INT_MAX, "db7fffffffffffffff"],
         ];
     }
 
@@ -285,5 +286,26 @@ class CborTaggedValueExtendedTest extends TestCase
         $this->assertInstanceOf(TaggedValue::class, $decoded);
         $this->assertSame($tag, $decoded->tag);
         $this->assertSame("x", $decoded->value);
+    }
+
+    public static function negativeTagProvider(): array
+    {
+        return [
+            'tag -1' => [-1],
+            'tag PHP_INT_MIN' => [PHP_INT_MIN],
+        ];
+    }
+
+    /**
+     * Tag numbers are unsigned, so a negative tag has no CBOR encoding.
+     *
+     * @throws CborException
+     */
+    #[DataProvider('negativeTagProvider')]
+    public function testNegativeTagThrows(int $tag): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Tag number must not be negative: $tag");
+        CborEncoder::encode(new TaggedValue($tag, "x"));
     }
 }

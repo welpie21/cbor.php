@@ -80,7 +80,11 @@ class CborDecoder
             1 => IntHelper::getUint8($this->buffer, $this->offset),
             2 => IntHelper::getUint16($this->buffer, $this->offset),
             4 => IntHelper::getUint32($this->buffer, $this->offset),
-            8 => IntHelper::getUint64($this->buffer, $this->offset),
+            // A uint64 at or above 2^63 wraps to a negative int. Rejecting it here also covers
+            // string/array/map lengths and tag numbers, which all come from this argument.
+            8 => ($value = IntHelper::getUint64($this->buffer, $this->offset)) >= 0
+                ? $value
+                : throw new CborException("Argument out of range at offset {$this->offset}: exceeds PHP_INT_MAX"),
             default => throw new CborException("Invalid byte length: " . $byteLength . " for additional: " . $additional)
         };
 

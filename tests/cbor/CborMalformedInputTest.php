@@ -12,6 +12,8 @@ use PHPUnit\Framework\TestCase;
  * - Truncated input: the data ends before the item (or its argument) is complete.
  * - Indefinite-length items (additional info 31) are not supported.
  * - Additional info 28–30 is reserved by RFC 8949 and is not well-formed.
+ * - An 8-byte argument above PHP_INT_MAX does not fit in a PHP int, whether it
+ *   is an integer, a string/array/map length or a tag number.
  */
 class CborMalformedInputTest extends TestCase
 {
@@ -90,5 +92,48 @@ class CborMalformedInputTest extends TestCase
         $this->expectException(CborException::class);
         $this->expectExceptionMessage("Invalid additional information: $additional");
         CborDecoder::decode(hex2bin($hex));
+    }
+
+    public static function argumentOutOfRangeProvider(): array
+    {
+        return [
+            'unsigned int 2^63' => ["1b8000000000000000"],
+            'unsigned int 2^64-1' => ["1bffffffffffffffff"],
+            'negative int -2^63-1' => ["3b8000000000000000"],
+            'negative int -2^64' => ["3bffffffffffffffff"],
+            'byte string length 2^64-1' => ["5bffffffffffffffff"],
+            'text string length 2^63' => ["7b8000000000000000"],
+            'array length 2^64-1' => ["9bffffffffffffffff"],
+            'map length 2^63' => ["bb8000000000000000"],
+            'tag number 2^64-1' => ["dbffffffffffffffff00"],
+        ];
+    }
+
+    /**
+     * @throws CborException
+     */
+    #[DataProvider('argumentOutOfRangeProvider')]
+    public function testArgumentAbovePhpIntMaxThrows(string $hex): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Argument out of range at offset 1");
+        CborDecoder::decode(hex2bin($hex));
+    }
+
+    public static function largestArgumentProvider(): array
+    {
+        return [
+            'unsigned int PHP_INT_MAX' => ["1b7fffffffffffffff", PHP_INT_MAX],
+            'negative int PHP_INT_MIN' => ["3b7fffffffffffffff", PHP_INT_MIN],
+        ];
+    }
+
+    /**
+     * @throws CborException
+     */
+    #[DataProvider('largestArgumentProvider')]
+    public function testLargestArgumentStillDecodes(string $hex, int $expected): void
+    {
+        $this->assertSame($expected, CborDecoder::decode(hex2bin($hex)));
     }
 }

@@ -118,6 +118,8 @@ $decoded->tag;   // 1
 $decoded->value; // 1705316400
 ```
 
+A tag number is an unsigned integer. The encoder throws a `CborException` for a negative tag number.
+
 ## Custom types
 
 A replacer is a closure that converts values. It has the signature `function (mixed $key, mixed $value): mixed`. The `$key` argument is always `null`.
@@ -178,7 +180,7 @@ try {
 
 - The encoder writes every float as a 64-bit float, except `NAN`.
 - The library does not support indefinite-length arrays, maps, or strings. The decoder throws a `CborException` for them.
-- Integers must fit in the PHP signed 64-bit range.
+- Integers, lengths, and tag numbers must fit in the PHP signed 64-bit range. The decoder throws a `CborException` for a larger value.
 - The decoder reads one CBOR item. It ignores bytes after that item.
 - The decoder does not validate UTF-8 in text strings.
 
