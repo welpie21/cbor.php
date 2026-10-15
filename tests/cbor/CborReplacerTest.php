@@ -100,7 +100,6 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("hello");
 
-        // Tag must be ≤ 23 for the current encoder implementation
         $encoded = CborEncoder::encode($value, function ($key, $value) {
             if ($value instanceof CborCustomType) {
                 return new TaggedValue(10, $value->value);
@@ -121,7 +120,6 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("hello");
 
-        // Tag must be ≤ 23 for the current encoder implementation
         $encoded = CborEncoder::encode($value, function ($key, $value) {
             if ($value instanceof CborCustomType) {
                 return new TaggedValue(10, $value->value);
@@ -145,7 +143,6 @@ class CborReplacerTest extends TestCase
      */
     public function testDecoderReplacerTransformsTaggedValue(): void
     {
-        // Tag must be ≤ 23 for the current encoder implementation
         $encoded = CborEncoder::encode(new TaggedValue(10, "test"));
 
         $decoded = CborDecoder::decode($encoded, function ($key, $value) {
@@ -241,5 +238,65 @@ class CborReplacerTest extends TestCase
         });
 
         $this->assertSame(15, $receivedTag);
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testEncodingObjectWithoutReplacerThrows(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Unsupported type: stdClass");
+        CborEncoder::encode(new stdClass());
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testEncodingObjectNestedInArrayWithoutReplacerThrows(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Unsupported type: stdClass");
+        CborEncoder::encode([1, ["key" => new stdClass()]]);
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testEncoderReplacerReturningSameValueThrows(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Unsupported type: CborCustomType");
+        CborEncoder::encode(new CborCustomType("hello"), fn($key, $value) => $value);
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testEncoderReplacerReturningAnotherUnsupportedValueThrows(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Unsupported type: stdClass");
+        CborEncoder::encode(new CborCustomType("hello"), fn($key, $value) => new stdClass());
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testEncoderReplacerAppliesToValuesInsideReplacedArray(): void
+    {
+        // The replacer's return value must be encodable, but values nested
+        // inside a returned array are passed to the replacer again.
+        $encoded = CborEncoder::encode(new CborCustomType("outer"), function ($key, $value) {
+            if ($value instanceof CborCustomType && $value->value === "outer") {
+                return [new CborCustomType("inner")];
+            }
+            if ($value instanceof CborCustomType) {
+                return $value->value;
+            }
+            return $value;
+        });
+
+        $this->assertSame(["inner"], CborDecoder::decode($encoded));
     }
 }

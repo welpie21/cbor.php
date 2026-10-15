@@ -153,9 +153,11 @@ class CborEncoder
     }
 
     /**
+     * @param bool $replaced Whether $value was returned by the replacer. A replaced
+     *                       value must be encodable, so the replacer is not called again.
      * @throws CborException
      */
-    private function encodeItem(mixed $value): void
+    private function encodeItem(mixed $value, bool $replaced = false): void
     {
         switch (true) {
             case is_int($value):
@@ -177,15 +179,18 @@ class CborEncoder
                 $this->packNull();
                 break;
             case $value instanceof AbstractTaggedValue:
-                $this->packInitialByte(6 << 5, $value->tag);
+                $this->packNumber(6 << 5, $value->tag);
                 $this->encodeItem($value->value);
                 break;
             case $value instanceof CborByteString:
                 $this->packString($value->getByteString(), true);
                 break;
             default:
-                $value = $this->replacer->call($this, null, $value);
-                $this->encodeItem($value);
+                if ($replaced) {
+                    throw new CborException("Unsupported type: " . get_debug_type($value));
+                }
+
+                $this->encodeItem($this->replacer->call($this, null, $value), true);
         }
     }
 
