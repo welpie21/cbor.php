@@ -175,6 +175,81 @@ class CborSpecialFloatTest extends TestCase
         $this->assertTrue(is_nan($decoded));
     }
 
+    /**
+     * @throws CborException
+     */
+    public function testDecodeFloat16NegativeInfinityFromRawBytes(): void
+    {
+        // float16 -INF: sign=1, exp=0x1f, mant=0 → 0xfc00
+        $decoded = CborDecoder::decode("\xf9\xfc\x00");
+        $this->assertTrue(is_infinite($decoded));
+        $this->assertLessThan(0.0, $decoded);
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testDecodeFloat16NegativeZeroFromRawBytes(): void
+    {
+        // float16 -0.0: 0x8000. -0.0 == 0.0, so compare the float64 bits to check the sign.
+        $decoded = CborDecoder::decode("\xf9\x80\x00");
+        $this->assertSame(pack("E", -0.0), pack("E", $decoded));
+    }
+
+    /**
+     * Values below 1 have a negative unbiased exponent (exp < 15).
+     *
+     * @throws CborException
+     */
+    public function testDecodeFloat16BelowOneFromRawBytes(): void
+    {
+        $this->assertSame(0.5, CborDecoder::decode("\xf9\x38\x00"));
+        $this->assertSame(-0.25, CborDecoder::decode("\xf9\xb4\x00"));
+        $this->assertSame(0.0999755859375, CborDecoder::decode("\xf9\x2e\x66")); // nearest half to 0.1
+        $this->assertSame(6.103515625E-5, CborDecoder::decode("\xf9\x04\x00")); // smallest normal, 2^-14
+    }
+
+    /**
+     * Subnormals (exp=0, mant>0) are mant * 2^-24.
+     *
+     * @throws CborException
+     */
+    public function testDecodeFloat16SubnormalFromRawBytes(): void
+    {
+        $this->assertSame(5.9604644775390625E-8, CborDecoder::decode("\xf9\x00\x01")); // smallest, 2^-24
+        $this->assertSame(6.097555160522461E-5, CborDecoder::decode("\xf9\x03\xff")); // largest
+        $this->assertSame(-5.9604644775390625E-8, CborDecoder::decode("\xf9\x80\x01"));
+    }
+
+    /**
+     * @throws CborException
+     */
+    public function testDecodeFloat16LargestFiniteFromRawBytes(): void
+    {
+        $this->assertSame(65504.0, CborDecoder::decode("\xf9\x7b\xff"));
+        $this->assertSame(-65504.0, CborDecoder::decode("\xf9\xfb\xff"));
+    }
+
+    /**
+     * Every positive finite half, in bit order, decodes to a strictly larger value than
+     * the one before, and its sign-flipped twin decodes to its negation.
+     *
+     * @throws CborException
+     */
+    public function testDecodeEveryFiniteFloat16IsOrderedAndSymmetric(): void
+    {
+        $previous = -1.0;
+
+        for ($half = 0x0000; $half <= 0x7bff; $half++) {
+            $positive = CborDecoder::decode("\xf9" . pack("n", $half));
+            $negative = CborDecoder::decode("\xf9" . pack("n", $half | 0x8000));
+
+            $this->assertGreaterThan($previous, $positive, sprintf("0x%04x", $half));
+            $this->assertSame(-$positive, $negative, sprintf("0x%04x", $half | 0x8000));
+            $previous = $positive;
+        }
+    }
+
     // ---- Decode float32 from raw bytes ----
 
     /**
