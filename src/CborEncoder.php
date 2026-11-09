@@ -5,6 +5,7 @@ namespace Beau\CborPHP;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\abstracts\AbstractTaggedValue;
 use Beau\CborPHP\utils\CborByteString;
+use Beau\CborPHP\utils\CborMap;
 use Closure;
 
 class CborEncoder
@@ -71,23 +72,37 @@ class CborEncoder
     private function encodeArray(array $array): void
     {
         $arrayLength = count($array);
-        $isMap = $this->isAssoc($array, $arrayLength);
 
-        // 0b10100000 = map
+        if ($this->isAssoc($array, $arrayLength)) {
+            $this->encodeMap($array, false);
+
+            return;
+        }
+
         // 0b10000000 = array
-        $majorType = $isMap ? 0b10100000 : 0b10000000;
+        $this->packNumber(0b10000000, $arrayLength);
 
-        $this->packNumber($majorType, $arrayLength);
+        foreach ($array as $value) {
+            $this->encodeItem($value);
+        }
+    }
 
-        if ($isMap) {
-            foreach ($array as $key => $value) {
+    /**
+     * @param array<int|string, mixed> $map
+     * @throws CborException
+     */
+    private function encodeMap(array $map, bool $stringKeys): void
+    {
+        $this->packNumber(0b10100000, count($map));
+
+        foreach ($map as $key => $value) {
+            if ($stringKeys && is_int($key)) {
+                $this->packString((string) $key);
+            } else {
                 $this->encodeItem($key);
-                $this->encodeItem($value);
             }
-        } else {
-            foreach ($array as $value) {
-                $this->encodeItem($value);
-            }
+
+            $this->encodeItem($value);
         }
     }
 
@@ -189,6 +204,9 @@ class CborEncoder
                 break;
             case $value instanceof CborByteString:
                 $this->packString($value->getByteString(), true);
+                break;
+            case $value instanceof CborMap:
+                $this->encodeMap($value->entries, $value->stringKeys);
                 break;
             default:
                 if ($replaced) {
