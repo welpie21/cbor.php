@@ -6,14 +6,19 @@ use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\exceptions\CborException;
+use Beau\CborPHP\utils\CborByteString;
 use Closure;
 
 class CborDecoder
 {
+    /** The deepest nesting of arrays, maps and tags the decoder accepts by default. */
+    public const DEFAULT_MAX_DEPTH = 512;
+
     private string $buffer;
     private int $length;
     private int $offset;
     private Closure $replacer;
+    private int $depth = 0;
 
     private static array $byteLength = [
         24 => 1,
@@ -22,13 +27,32 @@ class CborDecoder
         27 => 8
     ];
 
-    private function __construct(string $buffer, ?Closure $replacer)
-    {
+    private function __construct(
+        string $buffer,
+        ?Closure $replacer,
+        private readonly bool $byteStrings,
+        private readonly int $maxDepth,
+        private readonly bool $strict,
+    ) {
         $this->offset = 0;
         $this->buffer = $buffer;
         $this->length = strlen($buffer);
 
         $this->replacer = $replacer ?? fn($key, $value) => $value;
+    }
+
+    /**
+     * Count one more level of nesting. Without a limit, deeply nested input
+     * (a few hundred kilobytes of array openings) exhausts memory or the
+     * stack, which PHP cannot recover from.
+     *
+     * @throws CborException
+     */
+    private function enter(): void
+    {
+        if (++$this->depth > $this->maxDepth) {
+            throw new CborException("Nesting deeper than {$this->maxDepth} levels at offset {$this->offset}");
+        }
     }
 
     // The bounds checks are written inline and only call these on failure,
@@ -53,10 +77,13 @@ class CborDecoder
     {
         $length = $this->decodeInt($additional);
         $array = [];
+        $this->enter();
 
         for ($i = 0; $i < $length; $i++) {
             $array[] = $this->decodeNext();
         }
+
+        $this->depth--;
 
         return $array;
     }
@@ -101,12 +128,26 @@ class CborDecoder
     {
         $length = $this->decodeInt($additional);
         $map = [];
+        $this->enter();
 
         for ($i = 0; $i < $length; $i++) {
+            $offset = $this->offset;
             $key = $this->decodeNext();
+
+            // An array, map, tag or byte string cannot be a PHP array key.
+            // Strict mode also refuses the keys PHP would change: a float,
+            // bool or null key would silently become an int or "".
+            if (!is_int($key) && !is_string($key)
+                && ($this->strict || !(is_float($key) || is_bool($key) || $key === null))
+            ) {
+                throw new CborException("Unsupported map key of type " . get_debug_type($key) . " at offset $offset");
+            }
+
             $value = $this->decodeNext();
             $map[$key] = $value;
         }
+
+        $this->depth--;
 
         return $map;
     }
@@ -128,7 +169,7 @@ class CborDecoder
     /**
      * @throws CborException
      */
-    private function decodeByteString(int $additional): string
+    private function decodeByteString(int $additional): string|CborByteString
     {
         $length = $this->decodeInt($additional);
         if ($this->offset + $length > $this->length) {
@@ -136,7 +177,7 @@ class CborDecoder
         }
         $result = substr($this->buffer, $this->offset, $length);
         $this->offset += $length;
-        return $result;
+        return $this->byteStrings ? new CborByteString($result) : $result;
     }
 
     /**
@@ -145,7 +186,9 @@ class CborDecoder
     private function decodeTag(int $additional): mixed
     {
         $tag = $this->decodeInt($additional);
+        $this->enter();
         $value = $this->decodeNext();
+        $this->depth--;
 
         return $this->replacer->call($this, null, new TaggedValue($tag, $value));
     }
@@ -216,11 +259,27 @@ class CborDecoder
     }
 
     /**
+     * @param bool $byteStrings return a byte string as a {@see CborByteString}, so it can
+     *                          be told apart from a text string, instead of a plain string
+     * @param int $maxDepth the deepest nesting of arrays, maps and tags to accept
+     * @param bool $strict refuse bytes after the item, and map keys other than an int or
+     *                     a string
      * @throws CborException
      */
-    public static function decode(string $data, ?Closure $replacer = null): mixed
-    {
-        $decoder = new CborDecoder($data, $replacer);
-        return $decoder->decodeItem();
+    public static function decode(
+        string $data,
+        ?Closure $replacer = null,
+        bool $byteStrings = false,
+        int $maxDepth = self::DEFAULT_MAX_DEPTH,
+        bool $strict = false,
+    ): mixed {
+        $decoder = new CborDecoder($data, $replacer, $byteStrings, $maxDepth, $strict);
+        $value = $decoder->decodeItem();
+
+        if ($strict && $decoder->offset !== $decoder->length) {
+            throw new CborException("Unexpected data after the item at offset {$decoder->offset}");
+        }
+
+        return $value;
     }
 }
