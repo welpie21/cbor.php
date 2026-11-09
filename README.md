@@ -52,7 +52,7 @@ The encoder returns a binary string. Use `bin2hex()` or `base64_encode()` if you
 | Method                                                                   | Description                                  |
 | ------------------------------------------------------------------------ | -------------------------------------------- |
 | `CborEncoder::encode(mixed $value, ?Closure $replacer = null): string`   | Encodes `$value` and returns the CBOR bytes. |
-| `CborDecoder::decode(string $data, ?Closure $replacer = null): mixed`    | Decodes one CBOR item from `$data`.          |
+| `CborDecoder::decode(string $data, ?Closure $replacer = null, bool $byteStrings = false, int $maxDepth = 512, bool $strict = false): mixed` | Decodes one CBOR item from `$data`. See [Decoder options](#decoder-options). |
 
 Both methods throw `Beau\CborPHP\exceptions\CborException` when they cannot process the data. For the `$replacer` argument, see [Custom types](#custom-types).
 
@@ -66,6 +66,7 @@ Both methods throw `Beau\CborPHP\exceptions\CborException` when they cannot proc
 | `float`                                  | 64-bit float. `NAN` encodes as a 16-bit float. |
 | `string`                                 | Text string (major type 3)                     |
 | `CborByteString`                         | Byte string (major type 2)                     |
+| `CborMap`                                | Map (major type 5), whatever its keys          |
 | List array (keys `0, 1, 2, …`), and `[]` | Array (major type 4)                           |
 | Any other array                          | Map (major type 5)                             |
 | `true`, `false`, `null`                  | Simple values `true`, `false`, `null`          |
@@ -79,7 +80,7 @@ Both methods throw `Beau\CborPHP\exceptions\CborException` when they cannot proc
 | Unsigned or negative integer   | `int`                                           |
 | 16-, 32-, or 64-bit float      | `float`                                         |
 | Text string                    | `string`                                        |
-| Byte string                    | `string` (raw bytes)                            |
+| Byte string                    | `string` (raw bytes), or `CborByteString` with `byteStrings: true` |
 | Array                          | List array                                      |
 | Map                            | Associative array                               |
 | `true`, `false`                | `bool`                                          |
@@ -100,7 +101,47 @@ echo bin2hex($bytes);
 // 43010203
 ```
 
-The decoder returns a CBOR byte string as a plain PHP `string`.
+The decoder returns a CBOR byte string as a plain PHP `string`. To tell byte strings and text strings apart, pass `byteStrings: true`; the decoder then returns each byte string as a `CborByteString`:
+
+```php
+use Beau\CborPHP\CborDecoder;
+
+$decoded = CborDecoder::decode(hex2bin('43010203'), byteStrings: true);
+$decoded->getByteString(); // "\x01\x02\x03"
+```
+
+## Maps
+
+The encoder writes a list array as a CBOR array, and any other array as a map. To write a value as a map whatever its keys, wrap it in `CborMap`. This is how to write an empty map, or a map with the keys `0, 1, 2`.
+
+PHP turns a numeric string key such as `"1"` into the int `1`. When a map's keys must all be text strings, pass `stringKeys: true`, and the encoder writes int keys as text strings:
+
+```php
+use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\utils\CborMap;
+
+bin2hex(CborEncoder::encode([]));                                  // 80 (empty array)
+bin2hex(CborEncoder::encode(new CborMap()));                       // a0 (empty map)
+bin2hex(CborEncoder::encode(new CborMap(['1' => true], stringKeys: true))); // a16131f5 ({"1": true})
+```
+
+## Decoder options
+
+`CborDecoder::decode()` takes these named arguments:
+
+| Argument      | Default | Effect |
+| ------------- | ------- | ------ |
+| `byteStrings` | `false` | Return each byte string as a `CborByteString` instead of a plain `string`. |
+| `maxDepth`    | `512`   | The deepest nesting of arrays, maps and tags to accept. Deeper input throws a `CborException`, rather than exhaust memory or the stack. |
+| `strict`      | `false` | Throw a `CborException` for bytes after the item, and for a map key that is not an `int` or a `string`. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`. |
+
+Use `strict: true` for input you do not trust:
+
+```php
+$value = CborDecoder::decode($data, byteStrings: true, strict: true);
+```
+
+A map key that cannot be a PHP array key (an array, map, tagged value or `CborByteString`) throws a `CborException` in every mode.
 
 ## Tagged values
 
@@ -181,7 +222,8 @@ try {
 - The encoder writes every float as a 64-bit float, except `NAN`.
 - The library does not support indefinite-length arrays, maps, or strings. The decoder throws a `CborException` for them.
 - Integers, lengths, and tag numbers must fit in the PHP signed 64-bit range. The decoder throws a `CborException` for a larger value.
-- The decoder reads one CBOR item. It ignores bytes after that item.
+- The decoder reads one CBOR item. It ignores bytes after that item, unless `strict` is set.
+- The decoder accepts nesting up to `maxDepth` levels (512 by default).
 - The decoder does not validate UTF-8 in text strings.
 
 ## Development
