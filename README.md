@@ -11,6 +11,7 @@ CBOR (Concise Binary Object Representation, [RFC 8949](https://www.rfc-editor.or
 
 - PHP 8.1 or later
 - A 64-bit PHP build
+- The `mbstring` extension, only if you set a [text string encoding](#text-string-encoding) other than UTF-8
 
 ## Installation
 
@@ -51,8 +52,8 @@ The encoder returns a binary string. Use `bin2hex()` or `base64_encode()` if you
 
 | Method                                                                   | Description                                  |
 | ------------------------------------------------------------------------ | -------------------------------------------- |
-| `CborEncoder::encode(mixed $value, ?Closure $replacer = null): string`   | Encodes `$value` and returns the CBOR bytes. |
-| `CborDecoder::decode(string $data, ?Closure $replacer = null, bool $byteStrings = false, int $maxDepth = 512, bool $strict = false): mixed` | Decodes one CBOR item from `$data`. See [Decoder options](#decoder-options). |
+| `CborEncoder::encode(mixed $value, ?Closure $replacer = null, ?StringEncoding $stringEncoding = null): string` | Encodes `$value` and returns the CBOR bytes. See [Text string encoding](#text-string-encoding). |
+| `CborDecoder::decode(string $data, ?Closure $replacer = null, bool $byteStrings = false, int $maxDepth = 512, bool $strict = false, ?StringEncoding $stringEncoding = null): mixed` | Decodes one CBOR item from `$data`. See [Decoder options](#decoder-options). |
 
 Both methods throw `Beau\CborPHP\exceptions\CborException` when they cannot process the data. For the `$replacer` argument, see [Custom types](#custom-types).
 
@@ -110,6 +111,48 @@ $decoded = CborDecoder::decode(hex2bin('43010203'), byteStrings: true);
 $decoded->getByteString(); // "\x01\x02\x03"
 ```
 
+## Text string encoding
+
+A CBOR text string is always UTF-8. By default, the encoder writes each PHP string as it is, and the decoder returns each text string as it is. Your strings must then be UTF-8.
+
+If your strings use a different encoding, set `stringEncoding`. The encoder converts each PHP string to UTF-8, and the decoder converts each text string to the encoding you set. The CBOR bytes stay UTF-8, so other CBOR decoders can read them.
+
+```php
+use Beau\CborPHP\CborDecoder;
+use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\enums\StringEncoding;
+
+$text = "h\x00\xe9\x00"; // "hé" in UTF-16LE
+
+$bytes = CborEncoder::encode($text, stringEncoding: StringEncoding::UTF16LE);
+
+echo bin2hex($bytes);
+// 6368c3a9 ("hé" in UTF-8)
+
+$decoded = CborDecoder::decode($bytes, stringEncoding: StringEncoding::UTF16LE);
+// "h\x00\xe9\x00"
+```
+
+| `StringEncoding` case | Encoding of your PHP strings |
+| --------------------- | ---------------------------- |
+| `UTF8`                | UTF-8. This is the default, the same as `null`. The library does not convert or validate strings. |
+| `UTF16`               | UTF-16. The encoder reads a byte order mark (BOM) if there is one, else big-endian. The decoder returns big-endian with no BOM. |
+| `UTF16BE`             | UTF-16, big-endian. |
+| `UTF16LE`             | UTF-16, little-endian. |
+| `UTF32`               | UTF-32, with the same BOM rules as `UTF16`. |
+| `UTF32BE`             | UTF-32, big-endian. |
+| `UTF32LE`             | UTF-32, little-endian. |
+
+The conversion applies to all text strings, also map keys and the strings in a tagged value. It does not apply to byte strings.
+
+Before it converts a string, the library makes sure that the string is valid:
+
+- The encoder throws a `CborException` for a PHP string that is not valid in `stringEncoding`.
+- The decoder throws a `CborException` for a text string that is not valid UTF-8.
+
+> [!NOTE]
+> An encoding other than `UTF8` requires the `mbstring` extension. Without it, the encoder and the decoder throw a `CborException`.
+
 ## Maps
 
 The encoder writes a list array as a CBOR array, and any other array as a map. To write a value as a map whatever its keys, wrap it in `CborMap`. This is how to write an empty map, or a map with the keys `0, 1, 2`.
@@ -134,6 +177,7 @@ bin2hex(CborEncoder::encode(new CborMap(['1' => true], stringKeys: true))); // a
 | `byteStrings` | `false` | Return each byte string as a `CborByteString` instead of a plain `string`. |
 | `maxDepth`    | `512`   | The deepest nesting of arrays, maps and tags to accept. Deeper input throws a `CborException`, rather than exhaust memory or the stack. |
 | `strict`      | `false` | Throw a `CborException` for bytes after the item, and for a map key that is not an `int` or a `string`. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`. |
+| `stringEncoding` | `null` (UTF-8) | The encoding of the PHP strings that the decoder returns for text strings. See [Text string encoding](#text-string-encoding). |
 
 Use `strict: true` for input you do not trust:
 
@@ -224,7 +268,7 @@ try {
 - Integers, lengths, and tag numbers must fit in the PHP signed 64-bit range. The decoder throws a `CborException` for a larger value.
 - The decoder reads one CBOR item. It ignores bytes after that item, unless `strict` is set.
 - The decoder accepts nesting up to `maxDepth` levels (512 by default).
-- The decoder does not validate UTF-8 in text strings.
+- The library does not validate UTF-8 in text strings when `stringEncoding` is UTF-8 (the default).
 
 ## Development
 
