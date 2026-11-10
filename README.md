@@ -78,7 +78,7 @@ Give the options by name. All of them are optional:
 | `reviver`        | `null`                 | A closure that the decoder calls for a tagged value with no tag handler. See [Replacer and reviver](#replacer-and-reviver). |
 | `byteStrings`    | `false`                | Decode each byte string as a `CborByteString` instead of a plain `string`. See [Byte strings](#byte-strings). Tag handlers always get plain strings. |
 | `maxDepth`       | `512`                  | The deepest nesting of arrays, maps and tags that the encoder writes and the decoder accepts. Deeper values throw a `CborException`, rather than exhaust memory or the stack. |
-| `strict`         | `false`                | Make the decoder throw a `CborException` for bytes after the item, for a map key that is not an `int` or a `string`, and for a duplicate map key. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`, and keeps the last value of a duplicate key. |
+| `strict`         | `false`                | Make the decoder throw a `CborException` for bytes after the item, for a map key that is not an `int` or a `string`, and for a duplicate map key. Without it, a `bool`, `float` or `null` key becomes the `int` or `""` that PHP would make of it, with no PHP deprecation or warning, and the last value of a duplicate key wins. |
 
 The constructor checks the options once, so `encode()` and `decode()` do not check them again. It throws a `CborException` for an invalid tag handler, or for a string encoding other than UTF-8 when the `mbstring` extension is missing.
 

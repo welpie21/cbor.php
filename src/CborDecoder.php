@@ -160,13 +160,15 @@ class CborDecoder
             $offset = $this->offset;
             $key = $this->decodeNext();
 
-            // An array, map, tag or byte string cannot be a PHP array key.
-            // Strict mode also refuses the keys PHP would change: a float,
-            // bool or null key would silently become an int or "".
-            if (!is_int($key) && !is_string($key)
-                && ($this->strict || !(is_float($key) || is_bool($key) || $key === null))
-            ) {
-                throw new CborException("Unsupported map key of type " . get_debug_type($key) . " at offset $offset");
+            if (!is_int($key) && !is_string($key)) {
+                // An array, map, tag or byte string cannot be a PHP array key.
+                // Strict mode also refuses the keys PHP would change: a float,
+                // bool or null key would become an int or "".
+                if ($this->strict || !(is_float($key) || is_bool($key) || $key === null)) {
+                    throw new CborException("Unsupported map key of type " . get_debug_type($key) . " at offset $offset");
+                }
+
+                $key = self::toArrayKey($key);
             }
 
             // PHP would keep only the last value. Strict mode refuses the input instead, also
@@ -182,6 +184,43 @@ class CborDecoder
         $this->depth--;
 
         return $map;
+    }
+
+    /**
+     * The key PHP makes of a bool, float or null, without the notices PHP raises when it
+     * converts one itself. PHP 8.1 and later deprecate a float key that is not a whole
+     * number, and PHP 8.5 warns for a float that is not an int and deprecates a null key.
+     * A framework error handler turns such a notice into an exception.
+     */
+    private static function toArrayKey(bool|float|null $key): int|string
+    {
+        if ($key === null) {
+            return '';
+        }
+
+        if (is_bool($key)) {
+            return (int) $key;
+        }
+
+        if (is_nan($key) || is_infinite($key)) {
+            return 0;
+        }
+
+        // Outside the int range, PHP wraps the value around modulo 2^64. Wrap it first, so
+        // the cast below never gets a float that it cannot represent. Floats this large are
+        // whole numbers, and every step here is exact.
+        if ($key >= 9.2233720368547758E18 || $key < -9.2233720368547758E18) {
+            $key = fmod($key, 18446744073709551616.0);
+
+            if ($key >= 9.2233720368547758E18) {
+                $key -= 18446744073709551616.0;
+            } elseif ($key < -9.2233720368547758E18) {
+                $key += 18446744073709551616.0;
+            }
+        }
+
+        // An explicit cast truncates toward zero, as PHP does for a key, and raises nothing.
+        return (int) $key;
     }
 
     /**
