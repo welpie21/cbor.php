@@ -5,6 +5,7 @@ namespace Beau\CborPHP;
 use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
 use Beau\CborPHP\classes\TaggedValue;
+use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\utils\CborByteString;
 use Closure;
@@ -33,6 +34,8 @@ class CborDecoder
         private readonly bool $byteStrings,
         private readonly int $maxDepth,
         private readonly bool $strict,
+        /** The mbstring name of the encoding to convert text strings to, or null for UTF-8 (no conversion). */
+        private readonly ?string $stringEncoding,
     ) {
         $this->offset = 0;
         $this->buffer = $buffer;
@@ -162,6 +165,16 @@ class CborDecoder
             throw $this->unexpectedEnd($length);
         }
         $result = substr($this->buffer, $this->offset, $length);
+
+        if ($this->stringEncoding !== null) {
+            // mbstring writes "?" for an invalid sequence, so check first rather than lose data.
+            if (!mb_check_encoding($result, 'UTF-8')) {
+                throw new CborException("Invalid UTF-8 in text string at offset {$this->offset}");
+            }
+
+            $result = mb_convert_encoding($result, $this->stringEncoding, 'UTF-8');
+        }
+
         $this->offset += $length;
         return $result;
     }
@@ -264,6 +277,9 @@ class CborDecoder
      * @param int $maxDepth the deepest nesting of arrays, maps and tags to accept
      * @param bool $strict refuse bytes after the item, and map keys other than an int or
      *                     a string
+     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings to return for
+     *                                        text strings, which are UTF-8 in CBOR. Null
+     *                                        means UTF-8.
      * @throws CborException
      */
     public static function decode(
@@ -272,8 +288,18 @@ class CborDecoder
         bool $byteStrings = false,
         int $maxDepth = self::DEFAULT_MAX_DEPTH,
         bool $strict = false,
+        // Null, not StringEncoding::UTF8: PHP evaluates an enum default on every call.
+        ?StringEncoding $stringEncoding = null,
     ): mixed {
-        $decoder = new CborDecoder($data, $replacer, $byteStrings, $maxDepth, $strict);
+        if ($stringEncoding !== null) {
+            if ($stringEncoding === StringEncoding::UTF8) {
+                $stringEncoding = null;
+            } elseif (!function_exists('mb_convert_encoding')) {
+                throw new CborException("The mbstring extension is required for stringEncoding {$stringEncoding->value}");
+            }
+        }
+
+        $decoder = new CborDecoder($data, $replacer, $byteStrings, $maxDepth, $strict, $stringEncoding?->value);
         $value = $decoder->decodeItem();
 
         if ($strict && $decoder->offset !== $decoder->length) {

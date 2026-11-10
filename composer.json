@@ -8,6 +8,9 @@
     "require": {
         "php": ">=8.1"
     },
+    "suggest": {
+        "ext-mbstring": "Required for a stringEncoding other than UTF-8"
+    },
     "license": "MIT",
     "autoload": {
         "psr-4": {

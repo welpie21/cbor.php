@@ -4,6 +4,7 @@ namespace Beau\CborPHP;
 
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\abstracts\AbstractTaggedValue;
+use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\utils\CborByteString;
 use Beau\CborPHP\utils\CborMap;
 use Closure;
@@ -13,6 +14,9 @@ class CborEncoder
     private string $buffer = "";
     private Closure $replacer;
 
+    /** The mbstring name of the encoding to convert strings from, or null for UTF-8 (no conversion). */
+    private ?string $stringEncoding = null;
+
     private static array $lengthPackType = [
         24 => "C",
         25 => "n",
@@ -20,11 +24,26 @@ class CborEncoder
     ];
 
     /**
+     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings in $value,
+     *                                        converted to UTF-8. Null means UTF-8.
      * @throws CborException
      */
-    public function __construct(mixed $value, ?Closure $replacer = null)
-    {
+    public function __construct(
+        mixed $value,
+        ?Closure $replacer = null,
+        // Null, not StringEncoding::UTF8: PHP evaluates an enum default on every call.
+        ?StringEncoding $stringEncoding = null,
+    ) {
         $this->replacer = $replacer ?? fn($key, $value) => $value;
+
+        if ($stringEncoding !== null && $stringEncoding !== StringEncoding::UTF8) {
+            if (!function_exists('mb_convert_encoding')) {
+                throw new CborException("The mbstring extension is required for stringEncoding {$stringEncoding->value}");
+            }
+
+            $this->stringEncoding = $stringEncoding->value;
+        }
+
         $this->encodeItem($value);
     }
 
@@ -97,6 +116,7 @@ class CborEncoder
 
         foreach ($map as $key => $value) {
             if ($stringKeys && is_int($key)) {
+                // Digits from an int are already UTF-8, whatever stringEncoding is.
                 $this->packString((string) $key);
             } else {
                 $this->encodeItem($key);
@@ -132,6 +152,25 @@ class CborEncoder
         return !array_is_list($array);
     }
 
+    /**
+     * Convert a PHP string from stringEncoding to UTF-8. Only call it when
+     * stringEncoding is set.
+     *
+     * @throws CborException
+     */
+    private function toUtf8(string $value): string
+    {
+        // mbstring writes "?" for an invalid sequence, so check first rather than lose data.
+        if (!mb_check_encoding($value, $this->stringEncoding)) {
+            throw new CborException("String is not valid {$this->stringEncoding}");
+        }
+
+        return mb_convert_encoding($value, 'UTF-8', $this->stringEncoding);
+    }
+
+    /**
+     * Write the bytes as they are. A text string must already be UTF-8.
+     */
     private function packString(string $value, bool $byte = false): void
     {
         $length = strlen($value);
@@ -183,7 +222,7 @@ class CborEncoder
                 $this->packDouble($value);
                 break;
             case is_string($value):
-                $this->packString($value);
+                $this->packString($this->stringEncoding === null ? $value : $this->toUtf8($value));
                 break;
             case is_array($value):
                 $this->encodeArray($value);
@@ -218,11 +257,17 @@ class CborEncoder
     }
 
     /**
+     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings in $value,
+     *                                        converted to UTF-8 as CBOR requires. Null
+     *                                        means UTF-8.
      * @throws CborException
      */
-    public static function encode(mixed $value, ?Closure $replacer = null): string
-    {
-        $encoder = new self($value, $replacer);
+    public static function encode(
+        mixed $value,
+        ?Closure $replacer = null,
+        ?StringEncoding $stringEncoding = null,
+    ): string {
+        $encoder = new self($value, $replacer, $stringEncoding);
         return $encoder->getResult();
     }
 }

@@ -2,6 +2,7 @@
 
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\enums\StringEncoding;
 use PhpBench\Attributes\BeforeMethods;
 use PhpBench\Attributes\Iterations;
 use PhpBench\Attributes\Revs;
@@ -86,6 +87,12 @@ class DecoderBench
     public function benchDecodeLargeString(): void
     {
         CborDecoder::decode($this->encodedLargeString);
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchDecodeStringUtf16(): void
+    {
+        CborDecoder::decode($this->encodedString, stringEncoding: StringEncoding::UTF16LE);
     }
 
     #[Revs(1000), Iterations(5), Warmup(2)]
