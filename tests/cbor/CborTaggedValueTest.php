@@ -1,6 +1,7 @@
 <?php
 
 use Beau\CborPHP\Cbor;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\interfaces\CborTag;
 use PHPUnit\Framework\TestCase;
@@ -22,12 +23,12 @@ class UUIDTag implements CborTag
         return UUIDClass::class;
     }
 
-    public function encode(object $value): string
+    public function encode(object $value, CborContext $context): string
     {
         return $value->uuid;
     }
 
-    public function decode(mixed $content): UUIDClass
+    public function decode(mixed $content, CborContext $context): UUIDClass
     {
         $uuid = new UUIDClass();
         $uuid->uuid = $content;

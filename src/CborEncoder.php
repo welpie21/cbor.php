@@ -2,6 +2,8 @@
 
 namespace Beau\CborPHP;
 
+use Beau\CborPHP\classes\CborConfig;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\TagRegistry;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\abstracts\AbstractTaggedValue;
@@ -13,6 +15,27 @@ class CborEncoder
 {
     private string $buffer = "";
 
+    // The options. Each one has its default here, so the encoder for the default options
+    // costs nothing to set up; encodeWith() sets them for a Cbor instance.
+
+    /**
+     * The mbstring name of the encoding to convert strings from, or null for UTF-8 (no
+     * conversion). It is off while the encoder writes the content of a tag handler.
+     */
+    private ?string $stringEncoding = null;
+    private ?TagRegistry $tags = null;
+    private ?Closure $replacer = null;
+    private int $maxDepth = CborDecoder::DEFAULT_MAX_DEPTH;
+
+    /** The options, for the context of tag handlers. */
+    private ?CborConfig $config = null;
+
+    /** The current nesting depth: more than 0 at the start for nested encoding. */
+    private int $depth = 0;
+
+    /** @var array<int, CborContext> the context for tag handlers, one per nesting depth */
+    private array $contexts = [];
+
     private static array $lengthPackType = [
         24 => "C",
         25 => "n",
@@ -22,15 +45,20 @@ class CborEncoder
     /**
      * One encoder writes one value. Use {@see CborEncoder::encode()}, or
      * {@see Cbor::encode()} for options.
-     *
-     * @param ?string $stringEncoding the mbstring name of the encoding to convert strings
-     *                                from, or null for UTF-8 (no conversion)
      */
-    private function __construct(
-        private readonly ?string $stringEncoding = null,
-        private readonly ?TagRegistry $tags = null,
-        private readonly ?Closure $replacer = null,
-    ) {
+    private function __construct()
+    {
+    }
+
+    /**
+     * Arrays, maps and tags count one level of nesting each. Without a limit, a value
+     * that holds itself (an array with a reference to itself, or a tag handler or
+     * replacer that keeps returning new objects) uses up memory, and PHP cannot recover
+     * from that. The checks are inline; this is called only when one fails.
+     */
+    private function tooDeep(): CborException
+    {
+        return new CborException("Nesting deeper than {$this->maxDepth} levels");
     }
 
     private function packInitialByte(int $majorType, int $additionalInfo): void
@@ -87,9 +115,15 @@ class CborEncoder
         // 0b10000000 = array
         $this->packNumber(0b10000000, $arrayLength);
 
+        if (++$this->depth > $this->maxDepth) {
+            throw $this->tooDeep();
+        }
+
         foreach ($array as $value) {
             $this->encodeItem($value);
         }
+
+        $this->depth--;
     }
 
     /**
@@ -99,6 +133,10 @@ class CborEncoder
     private function encodeMap(array $map, bool $stringKeys): void
     {
         $this->packNumber(0b10100000, count($map));
+
+        if (++$this->depth > $this->maxDepth) {
+            throw $this->tooDeep();
+        }
 
         foreach ($map as $key => $value) {
             if ($stringKeys && is_int($key)) {
@@ -110,6 +148,8 @@ class CborEncoder
 
             $this->encodeItem($value);
         }
+
+        $this->depth--;
     }
 
     private function packInt(int $value): void
@@ -202,7 +242,12 @@ class CborEncoder
 
             if ($entry !== false) {
                 [$tag, $handler] = $entry;
-                $content = $handler->encode($value);
+
+                if (++$this->depth > $this->maxDepth) {
+                    throw $this->tooDeep();
+                }
+
+                $content = $handler->encode($value, $this->contexts[$this->depth] ??= new CborContext($this->config, $this->depth));
 
                 // Encoding the object itself again would never end.
                 if ($content === $value) {
@@ -210,7 +255,14 @@ class CborEncoder
                 }
 
                 $this->packNumber(6 << 5, $tag);
+
+                // The handler made the content, so write its strings as they are.
+                $stringEncoding = $this->stringEncoding;
+                $this->stringEncoding = null;
                 $this->encodeItem($content);
+                $this->stringEncoding = $stringEncoding;
+
+                $this->depth--;
                 return;
             }
         }
@@ -254,7 +306,13 @@ class CborEncoder
                     throw new CborException("Tag number must not be negative: {$value->tag}");
                 }
                 $this->packNumber(6 << 5, $value->tag);
+
+                if (++$this->depth > $this->maxDepth) {
+                    throw $this->tooDeep();
+                }
+
                 $this->encodeItem($value->value);
+                $this->depth--;
                 break;
             case $value instanceof CborByteString:
                 $this->packString($value->getByteString(), true);
@@ -268,8 +326,9 @@ class CborEncoder
     }
 
     /**
-     * Encode a value with the default options: UTF-8 strings, no tag handlers and no
-     * replacer. For options, use {@see Cbor}.
+     * Encode a value with the default options: UTF-8 strings, no tag handlers, no
+     * replacer, and nesting up to {@see CborDecoder::DEFAULT_MAX_DEPTH}. For options,
+     * use {@see Cbor}.
      *
      * @throws CborException
      */
@@ -286,12 +345,19 @@ class CborEncoder
     }
 
     /**
-     * @internal Use {@see Cbor::encode()}.
+     * @internal Use {@see Cbor::encode()}, or {@see CborContext::encode()} in a tag handler.
+     * @param int $depth the nesting depth to start at
      * @throws CborException
      */
-    public static function encodeWith(mixed $value, ?string $stringEncoding, ?TagRegistry $tags, ?Closure $replacer): string
+    public static function encodeWith(mixed $value, CborConfig $config, int $depth = 0): string
     {
-        $encoder = new self($stringEncoding, $tags, $replacer);
+        $encoder = new self();
+        $encoder->stringEncoding = $config->stringEncoding;
+        $encoder->tags = $config->tags;
+        $encoder->replacer = $config->replacer;
+        $encoder->maxDepth = $config->maxDepth;
+        $encoder->config = $config;
+        $encoder->depth = $depth;
         $encoder->encodeItem($value);
         return $encoder->buffer;
     }

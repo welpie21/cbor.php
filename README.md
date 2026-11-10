@@ -76,8 +76,8 @@ Give the options by name. All of them are optional:
 | `stringEncoding` | `StringEncoding::UTF8` | The encoding of your PHP strings. See [Text string encoding](#text-string-encoding). |
 | `replacer`       | `null`                 | A closure that the encoder calls for a value with no CBOR mapping and no tag handler. See [Replacer and reviver](#replacer-and-reviver). |
 | `reviver`        | `null`                 | A closure that the decoder calls for a tagged value with no tag handler. See [Replacer and reviver](#replacer-and-reviver). |
-| `byteStrings`    | `false`                | Decode each byte string as a `CborByteString` instead of a plain `string`. See [Byte strings](#byte-strings). |
-| `maxDepth`       | `512`                  | The deepest nesting of arrays, maps and tags that the decoder accepts. Deeper input throws a `CborException`, rather than exhaust memory or the stack. |
+| `byteStrings`    | `false`                | Decode each byte string as a `CborByteString` instead of a plain `string`. See [Byte strings](#byte-strings). Tag handlers always get plain strings. |
+| `maxDepth`       | `512`                  | The deepest nesting of arrays, maps and tags that the encoder writes and the decoder accepts. Deeper values throw a `CborException`, rather than exhaust memory or the stack. |
 | `strict`         | `false`                | Make the decoder throw a `CborException` for bytes after the item, and for a map key that is not an `int` or a `string`. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`. |
 
 The constructor checks the options once, so `encode()` and `decode()` do not check them again. It throws a `CborException` for an invalid tag handler, or for a string encoding other than UTF-8 when the `mbstring` extension is missing.
@@ -116,7 +116,7 @@ A library can share its configured instance this way, and your application can a
 | `Cbor::with(mixed ...$options): Cbor` | Returns a copy with the options that you give by name. |
 | `Cbor::withTags(CborTag ...$tags): Cbor` | Returns a copy with more tag handlers. |
 
-The default options are the ones in the [Configuration](#configuration) table. All methods throw `Beau\CborPHP\exceptions\CborException` when they cannot process the data.
+The default options are the ones in the [Configuration](#configuration) table. The methods throw `Beau\CborPHP\exceptions\CborException` when they cannot process the data. See [Errors](#errors).
 
 ## Type mapping
 
@@ -211,7 +211,10 @@ One instance encodes and decodes, so the decoder always returns strings in the s
 | `UTF32BE`             | UTF-32, big-endian. |
 | `UTF32LE`             | UTF-32, little-endian. |
 
-The conversion applies to all text strings: values, map keys, and the strings in tagged values and in tag content. It does not apply to byte strings.
+The conversion applies to the text strings in your values, map keys included, and to the strings in a `TaggedValue`. It does not apply to byte strings, or to the content of a tag handler, which converts its own strings. See [Custom tags](#custom-tags).
+
+> [!IMPORTANT]
+> Every PHP string must be in `stringEncoding`, also the map keys that you write in your code. With `UTF16LE`, the key `'id'` is two bytes, so the encoder reads it as one UTF-16 character and writes `{"摩": 1}`. Write such keys in the same encoding, for example with `mb_convert_encoding('id', 'UTF-16LE', 'UTF-8')`. The decoder also returns map keys in `stringEncoding`.
 
 Before it converts a string, the library makes sure that the string is valid:
 
@@ -244,6 +247,7 @@ This example writes a `Money` object as tag `20`:
 
 ```php
 use Beau\CborPHP\Cbor;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\interfaces\CborTag;
 
 final class Money
@@ -266,14 +270,19 @@ final class MoneyTag implements CborTag
         return Money::class;
     }
 
-    public function encode(object $value): mixed
+    public function encode(object $value, CborContext $context): mixed
     {
-        return [$value->cents, $value->currency];
+        return [$value->cents, $context->toUtf8($value->currency)];
     }
 
-    public function decode(mixed $content): mixed
+    public function decode(mixed $content, CborContext $context): mixed
     {
-        return new Money(...$content);
+        // The content is whatever the sender wrote. Check its shape first.
+        if (!is_array($content) || !array_is_list($content) || count($content) !== 2) {
+            throw new UnexpectedValueException('Tag 20 must hold [cents, currency]');
+        }
+
+        return new Money($content[0], $context->fromUtf8($content[1]));
     }
 }
 
@@ -294,8 +303,37 @@ A tag handler has these methods:
 | ------ | ------- |
 | `tag(): int` | The tag number. It must not be negative. |
 | `class(): ?string` | The class or interface whose objects the handler encodes, or `null` if the handler only decodes. |
-| `encode(object $value): mixed` | The tag content for an object of `class()`. The encoder encodes the content like any other value, so it can hold strings, arrays and other tagged objects. Do not return the object itself. |
-| `decode(mixed $content): mixed` | The PHP value for the tag content. Any type is possible, also a plain `string` or `int`. Tagged values in the content are already decoded. |
+| `encode(object $value, CborContext $context): mixed` | The tag content for an object of `class()`. The encoder encodes the content like any other value, so it can hold strings, arrays and other tagged objects. Do not return the object itself. |
+| `decode(mixed $content, CborContext $context): mixed` | The PHP value for the tag content. Any type is possible, also a plain `string` or `int`. Tagged values in the content are already decoded. |
+
+### Tag content
+
+The content of a tag handler is always in the same form, whatever the options of the `Cbor` instance:
+
+- Text strings are UTF-8. The encoder writes the strings in your content as they are, and the decoder gives you the strings of the content without conversion.
+- Byte strings are plain PHP strings, also with `byteStrings: true`.
+
+So a handler that writes text it makes itself, such as a formatted date, works with every `stringEncoding`. For a string that comes from your own data, use the context:
+
+| `CborContext` method | Effect |
+| -------------------- | ------ |
+| `toUtf8(string $text): string` | Converts your string from `stringEncoding` to UTF-8, for the content. |
+| `fromUtf8(string $text): string` | Converts a string of the content from UTF-8 to `stringEncoding`. |
+| `encode(mixed $value): string` | Encodes a value with the same options, for a tag that holds encoded CBOR, such as tag `24`. The nesting depth keeps counting. |
+| `decode(string $data): mixed` | Decodes CBOR bytes with the same options. The nesting depth keeps counting, so nested data cannot get past `maxDepth`. |
+
+With UTF-8, the default, `toUtf8()` and `fromUtf8()` return the string as it is.
+
+### Untrusted content
+
+When you decode untrusted input, the content of a tag is whatever the sender wrote. Check its shape in `decode()`, as `MoneyTag` does above.
+
+> [!WARNING]
+> Do not spread the content into a constructor, as in `new Money(...$content)`. If the content is a map, PHP uses its keys as named arguments, so the sender can set any parameter of the constructor.
+
+When `decode()` throws, the decoder throws a `CborException` that tells the tag and its offset. `getPrevious()` returns your exception. A `CborException` from the handler passes through as it is.
+
+### Which handler encodes an object
 
 The encoder gives an object to a handler as follows:
 
@@ -317,7 +355,7 @@ Two tags can decode to the same class. For example, tag `0` (a date/time string)
 - two handlers have the same tag number, or the same class,
 - `class()` returns a class that does not exist, or a class that the encoder writes itself (`TaggedValue`, `CborByteString` or `CborMap`).
 
-The encoder throws a `CborException` when `encode()` returns the object that it got.
+The encoder throws a `CborException` when `encode()` returns the object that it got, and when handlers nest deeper than `maxDepth`, for example a handler that returns a new object of its own class.
 
 ## Tagged values
 
@@ -362,11 +400,13 @@ $cbor->decode(hex2bin('d8207368747470733a2f2f6578616d706c652e636f6d'));
 // "https://example.com"
 ```
 
-The replacer and the reviver run as normal closures. `$this` in them is your own object, and static closures work.
+The replacer and the reviver run as normal closures. `$this` in them is your own object, and static closures work. When the reviver throws, the decoder throws a `CborException`, with your exception as the previous one.
 
 ## Errors
 
 The library throws `Beau\CborPHP\exceptions\CborException` for data it cannot process. For example, the decoder throws it for truncated input, and the encoder throws it for a value that has no CBOR mapping. The message starts with `Cbor Exception:`.
+
+When you decode, an exception from a tag handler or from the reviver also reaches you as a `CborException`, so one `catch` handles all bad input. `getPrevious()` returns the original exception. When you encode, an exception from your tag handler or replacer reaches you as it is.
 
 ```php
 use Beau\CborPHP\CborDecoder;
@@ -386,7 +426,7 @@ try {
 - The library does not support indefinite-length arrays, maps, or strings. The decoder throws a `CborException` for them.
 - Integers, lengths, and tag numbers must fit in the PHP signed 64-bit range. The decoder throws a `CborException` for a larger value.
 - The decoder reads one CBOR item. It ignores bytes after that item, unless `strict` is set.
-- The decoder accepts nesting up to `maxDepth` levels (512 by default).
+- The encoder and the decoder accept nesting up to `maxDepth` levels (512 by default).
 - The library does not validate UTF-8 in text strings when `stringEncoding` is UTF-8 (the default).
 
 ## Upgrading from 2.x

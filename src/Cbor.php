@@ -2,6 +2,7 @@
 
 namespace Beau\CborPHP;
 
+use Beau\CborPHP\classes\CborConfig;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\classes\TagRegistry;
 use Beau\CborPHP\enums\StringEncoding;
@@ -34,13 +35,8 @@ final class Cbor
     /** @var list<CborTag> */
     private readonly array $tags;
 
-    private readonly ?TagRegistry $registry;
-
-    /** @var array<int, CborTag> */
-    private readonly array $tagsByNumber;
-
-    /** The mbstring name of the string encoding, or null for UTF-8 (no conversion). */
-    private readonly ?string $mbEncoding;
+    /** The options in the form the encoder and decoder use. */
+    private readonly CborConfig $config;
 
     /**
      * @param list<CborTag> $tags handlers for custom tags. See {@see CborTag}.
@@ -54,8 +50,9 @@ final class Cbor
      *                                              that has no tag handler. Its return value
      *                                              replaces the tagged value.
      * @param bool $byteStrings decode a byte string as a {@see utils\CborByteString}, not a
-     *                          plain string
-     * @param int $maxDepth the deepest nesting of arrays, maps and tags the decoder accepts
+     *                          plain string. Tag handlers always get plain strings.
+     * @param int $maxDepth the deepest nesting of arrays, maps and tags that the encoder
+     *                      writes and the decoder accepts
      * @param bool $strict make the decoder refuse bytes after the item, and map keys other
      *                     than an int or a string
      * @throws CborException for an invalid tag handler, or a string encoding other than
@@ -71,16 +68,26 @@ final class Cbor
         private readonly bool $strict = false,
     ) {
         $this->tags = array_values($tags);
-        $this->registry = $this->tags === [] ? null : new TagRegistry($this->tags);
-        $this->tagsByNumber = $this->registry?->byNumber ?? [];
+        $registry = $this->tags === [] ? null : new TagRegistry($this->tags);
 
         if ($stringEncoding === null || $stringEncoding === StringEncoding::UTF8) {
-            $this->mbEncoding = null;
+            $mbEncoding = null;
         } elseif (!function_exists('mb_convert_encoding')) {
             throw new CborException("The mbstring extension is required for stringEncoding {$stringEncoding->value}");
         } else {
-            $this->mbEncoding = $stringEncoding->value;
+            $mbEncoding = $stringEncoding->value;
         }
+
+        $this->config = new CborConfig(
+            stringEncoding: $mbEncoding,
+            tags: $registry,
+            tagsByNumber: $registry?->byNumber ?? [],
+            replacer: $replacer,
+            reviver: $reviver,
+            byteStrings: $byteStrings,
+            maxDepth: $maxDepth,
+            strict: $strict,
+        );
     }
 
     /**
@@ -90,7 +97,7 @@ final class Cbor
      */
     public function encode(mixed $value): string
     {
-        return CborEncoder::encodeWith($value, $this->mbEncoding, $this->registry, $this->replacer);
+        return CborEncoder::encodeWith($value, $this->config);
     }
 
     /**
@@ -100,15 +107,7 @@ final class Cbor
      */
     public function decode(string $data): mixed
     {
-        return CborDecoder::decodeWith(
-            $data,
-            $this->byteStrings,
-            $this->maxDepth,
-            $this->strict,
-            $this->mbEncoding,
-            $this->tagsByNumber,
-            $this->reviver,
-        );
+        return CborDecoder::decodeWith($data, $this->config);
     }
 
     /**

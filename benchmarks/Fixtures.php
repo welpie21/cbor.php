@@ -2,6 +2,7 @@
 
 // Shared by the benchmarks. phpbench runs only the files that end in Bench.php.
 
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\interfaces\CborTag;
 
@@ -22,14 +23,14 @@ final class BenchMoneyTag implements CborTag
         return BenchMoney::class;
     }
 
-    public function encode(object $value): array
+    public function encode(object $value, CborContext $context): array
     {
         return [$value->cents, $value->currency];
     }
 
-    public function decode(mixed $content): BenchMoney
+    public function decode(mixed $content, CborContext $context): BenchMoney
     {
-        return new BenchMoney(...$content);
+        return new BenchMoney($content[0], $content[1]);
     }
 }
 
@@ -57,7 +58,7 @@ final class BenchFixtures
     public static function moneyReviver(): Closure
     {
         return static fn(TaggedValue $value) => $value->tag === 20
-            ? new BenchMoney(...$value->value)
+            ? new BenchMoney($value->value[0], $value->value[1])
             : $value;
     }
 }

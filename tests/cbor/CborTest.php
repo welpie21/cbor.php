@@ -3,6 +3,7 @@
 use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\exceptions\CborException;
@@ -27,12 +28,12 @@ final class ConfigTestArrayTag implements CborTag
         return $this->class;
     }
 
-    public function encode(object $value): array
+    public function encode(object $value, CborContext $context): array
     {
         return $value->getArrayCopy();
     }
 
-    public function decode(mixed $content): object
+    public function decode(mixed $content, CborContext $context): object
     {
         return new $this->class($content);
     }
@@ -90,6 +91,47 @@ class CborTest extends TestCase
         for ($i = 0; $i < 3; $i++) {
             $this->assertSame([$i], $cbor->decode($cbor->encode([$i])));
         }
+    }
+
+    // --- nesting depth ---
+
+    public function testTheEncoderRefusesNestingDeeperThanMaxDepth(): void
+    {
+        $cbor = new Cbor(maxDepth: 2);
+
+        $this->assertSame('818101', bin2hex($cbor->encode([[1]])));
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 2 levels');
+
+        $cbor->encode([[[1]]]);
+    }
+
+    public function testTheStaticEncoderAcceptsTheDefaultDepth(): void
+    {
+        $value = 0;
+        for ($i = 0; $i < CborDecoder::DEFAULT_MAX_DEPTH; $i++) {
+            $value = [$value];
+        }
+
+        // What the encoder writes, the decoder with the same limit reads back.
+        $this->assertSame($value, CborDecoder::decode(CborEncoder::encode($value)));
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 512 levels');
+
+        CborEncoder::encode([$value]);
+    }
+
+    public function testAnArrayThatHoldsItselfIsACborException(): void
+    {
+        $array = [1];
+        $array[] = &$array;
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 512 levels');
+
+        CborEncoder::encode($array);
     }
 
     // --- with() ---

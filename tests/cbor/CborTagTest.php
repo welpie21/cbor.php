@@ -2,6 +2,7 @@
 
 use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\exceptions\CborException;
@@ -29,14 +30,19 @@ final class TagTestMoneyTag implements CborTag
         return TagTestMoney::class;
     }
 
-    public function encode(object $value): array
+    public function encode(object $value, CborContext $context): array
     {
-        return [$value->cents, $value->currency];
+        return [$value->cents, $context->toUtf8($value->currency)];
     }
 
-    public function decode(mixed $content): TagTestMoney
+    public function decode(mixed $content, CborContext $context): TagTestMoney
     {
-        return new TagTestMoney(...$content);
+        // Accept only [cents, currency]. Spread into the constructor, a map would set named arguments.
+        if (!is_array($content) || !array_is_list($content) || count($content) !== 2) {
+            throw new UnexpectedValueException('Tag 20 must hold [cents, currency]');
+        }
+
+        return new TagTestMoney($content[0], $context->fromUtf8($content[1]));
     }
 }
 
@@ -60,14 +66,14 @@ final class TagTestHandler implements CborTag
         return $this->class;
     }
 
-    public function encode(object $value): mixed
+    public function encode(object $value, CborContext $context): mixed
     {
-        return ($this->encode)($value);
+        return ($this->encode)($value, $context);
     }
 
-    public function decode(mixed $content): mixed
+    public function decode(mixed $content, CborContext $context): mixed
     {
-        return $this->decode === null ? $content : ($this->decode)($content);
+        return $this->decode === null ? $content : ($this->decode)($content, $context);
     }
 }
 
@@ -160,7 +166,7 @@ class CborTagTest extends TestCase
         $this->assertEquals($wallet, $cbor->decode($encoded));
     }
 
-    public function testStringsInTheContentFollowTheStringEncoding(): void
+    public function testAHandlerConvertsItsStringsWithTheContext(): void
     {
         $cbor = new Cbor(tags: [new TagTestMoneyTag()], stringEncoding: StringEncoding::UTF16LE);
         $money = new TagTestMoney(1999, "E\x00U\x00R\x00");
@@ -371,6 +377,168 @@ class CborTagTest extends TestCase
         $cbor = new Cbor(tags: [new TagTestHandler(20, 'tagtestmoney', fn(TagTestMoney $value) => $value->cents)]);
 
         $this->assertSame('d41907cf', bin2hex($cbor->encode(new TagTestMoney(1999, 'EUR'))));
+    }
+
+    // --- untrusted content ---
+
+    /**
+     * @return iterable<string, array{string}>
+     */
+    public static function hostileMoney(): iterable
+    {
+        yield 'an int' => ['d401'];
+        yield 'an empty list' => ['d480'];
+        // Spread into a constructor, this map would set the named argument $x.
+        yield 'a map' => ['d4a1617801'];
+        yield 'the wrong types' => ['d482617801'];
+    }
+
+    #[DataProvider('hostileMoney')]
+    public function testContentOfTheWrongShapeIsACborException(string $hex): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Tag 20 at offset 0: TagTestMoneyTag::decode() failed');
+
+        (new Cbor(tags: [new TagTestMoneyTag()], strict: true))->decode(hex2bin($hex));
+    }
+
+    public function testAHandlerErrorKeepsTheOriginal(): void
+    {
+        $cbor = new Cbor(tags: [new TagTestHandler(20, null, decode: fn() => throw new RuntimeException('bad content'))]);
+
+        try {
+            $cbor->decode(hex2bin('d401'));
+            $this->fail('Expected a CborException');
+        } catch (CborException $e) {
+            $this->assertSame('Cbor Exception: Tag 20 at offset 0: TagTestHandler::decode() failed: bad content', $e->getMessage());
+            $this->assertInstanceOf(RuntimeException::class, $e->getPrevious());
+        }
+    }
+
+    public function testACborExceptionFromAHandlerIsNotWrapped(): void
+    {
+        $cbor = new Cbor(tags: [new TagTestHandler(20, null, decode: fn() => throw new CborException('mine'))]);
+
+        try {
+            $cbor->decode(hex2bin('d401'));
+            $this->fail('Expected a CborException');
+        } catch (CborException $e) {
+            $this->assertSame('Cbor Exception: mine', $e->getMessage());
+            $this->assertNull($e->getPrevious());
+        }
+    }
+
+    public function testAReviverErrorIsACborException(): void
+    {
+        $cbor = new Cbor(reviver: fn(TaggedValue $value) => throw new LogicException('no'));
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Tag 99 at offset 1: the reviver failed: no');
+
+        // [99(1)]: the tag starts at offset 1.
+        $cbor->decode(hex2bin('81d86301'));
+    }
+
+    // --- the content form ---
+
+    public function testTheEncoderWritesHandlerStringsAsTheyAre(): void
+    {
+        // The handler makes ASCII text. With UTF16LE it must not be read as UTF-16.
+        $cbor = new Cbor(
+            tags: [new TagTestHandler(
+                0,
+                DateTimeImmutable::class,
+                fn(DateTimeImmutable $value) => $value->format('Y-m-d\TH:i:s\Z'),
+                fn(string $content) => new DateTimeImmutable($content),
+            )],
+            stringEncoding: StringEncoding::UTF16LE,
+        );
+
+        $encoded = $cbor->encode(new DateTimeImmutable('@1700000000'));
+
+        $this->assertSame('c074323032332d31312d31345432323a31333a32305a', bin2hex($encoded));
+        $this->assertSame(1700000000, $cbor->decode($encoded)->getTimestamp());
+    }
+
+    public function testHandlersGetPlainByteStringsWhateverTheOptions(): void
+    {
+        $cbor = new Cbor(tags: [new TagTestHandler(37, null, decode: fn(string $content) => bin2hex($content))], byteStrings: true);
+
+        // [37(h'0102'), h'0304']: only the byte string outside the tag is a CborByteString.
+        $decoded = $cbor->decode(hex2bin('82d825420102420304'));
+
+        $this->assertSame('0102', $decoded[0]);
+        $this->assertInstanceOf(CborByteString::class, $decoded[1]);
+    }
+
+    public function testInvalidUtf8ForTheContextIsACborException(): void
+    {
+        $cbor = new Cbor(tags: [new TagTestMoneyTag()], stringEncoding: StringEncoding::UTF16LE);
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Invalid UTF-8 in tag content');
+
+        // 20([1, "\xff"])
+        $cbor->decode(hex2bin('d4820161ff'));
+    }
+
+    // --- nesting ---
+
+    public function testAHandlerThatReturnsANewObjectOfItsClassIsRefused(): void
+    {
+        $cbor = new Cbor(tags: [new TagTestHandler(20, TagTestMoney::class, fn(TagTestMoney $value) => new TagTestMoney($value->cents, $value->currency))]);
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 512 levels');
+
+        $cbor->encode(new TagTestMoney(1999, 'EUR'));
+    }
+
+    public function testNestedDecodingKeepsCountingTheDepth(): void
+    {
+        // Tag 24 holds encoded CBOR, which the handler decodes with the context.
+        $cbor = new Cbor(
+            tags: [new TagTestHandler(24, null, decode: fn(string $content, CborContext $context) => $context->decode($content))],
+            maxDepth: 8,
+        );
+        $nest = function (int $levels): string {
+            $data = "\x01";
+            for ($i = 0; $i < $levels; $i++) {
+                $data = "\xd8\x18" . CborEncoder::encode(new CborByteString($data));
+            }
+            return $data;
+        };
+
+        $this->assertSame(1, $cbor->decode($nest(8)));
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 8 levels');
+
+        $cbor->decode($nest(9));
+    }
+
+    public function testNestedEncodingKeepsCountingTheDepth(): void
+    {
+        // Each ArrayObject is written as tag 24 around its first item, encoded with the context.
+        $cbor = new Cbor(
+            tags: [new TagTestHandler(24, ArrayObject::class, fn(ArrayObject $value, CborContext $context) => new CborByteString($context->encode($value[0])))],
+            maxDepth: 8,
+        );
+        $nest = function (int $levels): mixed {
+            $value = 1;
+            for ($i = 0; $i < $levels; $i++) {
+                $value = new ArrayObject([$value]);
+            }
+            return $value;
+        };
+
+        $this->assertSame('d81841' . '01', bin2hex($cbor->encode($nest(1))));
+        $cbor->encode($nest(8));
+
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('Nesting deeper than 8 levels');
+
+        $cbor->encode($nest(9));
     }
 
     public function testAHandlerThatReturnsTheObjectIsRefused(): void

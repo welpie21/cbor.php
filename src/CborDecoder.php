@@ -2,6 +2,8 @@
 
 namespace Beau\CborPHP;
 
+use Beau\CborPHP\classes\CborConfig;
+use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
 use Beau\CborPHP\classes\TaggedValue;
@@ -9,6 +11,7 @@ use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\interfaces\CborTag;
 use Beau\CborPHP\utils\CborByteString;
 use Closure;
+use Throwable;
 
 class CborDecoder
 {
@@ -17,8 +20,34 @@ class CborDecoder
 
     private string $buffer;
     private int $length;
-    private int $offset;
+    private int $offset = 0;
+
+    // The options. Each one has its default here, so the decoder for the default options
+    // costs little to set up; decodeWith() sets them for a Cbor instance.
+
+    /** Return byte strings as CborByteString. Off while reading the content of a tag handler. */
+    private bool $byteStrings = false;
+    private int $maxDepth = self::DEFAULT_MAX_DEPTH;
+    private bool $strict = false;
+
+    /**
+     * The mbstring name of the encoding to convert text strings to, or null for UTF-8 (no
+     * conversion). Off while reading the content of a tag handler.
+     */
+    private ?string $stringEncoding = null;
+
+    /** @var array<int, CborTag> tag handlers by tag number */
+    private array $tags = [];
+    private ?Closure $reviver = null;
+
+    /** The options, for the context of tag handlers. */
+    private ?CborConfig $config = null;
+
+    /** The current nesting depth: more than 0 at the start for nested decoding. */
     private int $depth = 0;
+
+    /** @var array<int, CborContext> the context for tag handlers, one per nesting depth */
+    private array $contexts = [];
 
     private static array $byteLength = [
         24 => 1,
@@ -30,21 +59,9 @@ class CborDecoder
     /**
      * One decoder reads one item. Use {@see CborDecoder::decode()}, or
      * {@see Cbor::decode()} for options.
-     *
-     * @param ?string $stringEncoding the mbstring name of the encoding to convert text
-     *                                strings to, or null for UTF-8 (no conversion)
-     * @param array<int, CborTag> $tags tag handlers by tag number
      */
-    private function __construct(
-        string $buffer,
-        private readonly bool $byteStrings = false,
-        private readonly int $maxDepth = self::DEFAULT_MAX_DEPTH,
-        private readonly bool $strict = false,
-        private readonly ?string $stringEncoding = null,
-        private readonly array $tags = [],
-        private readonly ?Closure $reviver = null,
-    ) {
-        $this->offset = 0;
+    private function __construct(string $buffer)
+    {
         $this->buffer = $buffer;
         $this->length = strlen($buffer);
     }
@@ -203,18 +220,51 @@ class CborDecoder
      */
     private function decodeTag(int $additional): mixed
     {
+        $start = $this->offset - 1;
         $tag = $this->decodeInt($additional);
         $this->enter();
+
+        if (isset($this->tags[$tag])) {
+            $handler = $this->tags[$tag];
+
+            // A handler gets its content in one form, whatever the options: text in
+            // UTF-8, and byte strings as plain strings.
+            $stringEncoding = $this->stringEncoding;
+            $byteStrings = $this->byteStrings;
+            $this->stringEncoding = null;
+            $this->byteStrings = false;
+            $content = $this->decodeNext();
+            $this->stringEncoding = $stringEncoding;
+            $this->byteStrings = $byteStrings;
+
+            // The content can be anything the sender wrote. Whatever the handler throws
+            // for it, the caller gets a CborException.
+            try {
+                $value = $handler->decode($content, $this->contexts[$this->depth] ??= new CborContext($this->config, $this->depth));
+            } catch (CborException $e) {
+                throw $e;
+            } catch (Throwable $e) {
+                throw new CborException("Tag $tag at offset $start: " . get_debug_type($handler) . "::decode() failed: " . $e->getMessage(), $e);
+            }
+
+            $this->depth--;
+            return $value;
+        }
+
         $value = $this->decodeNext();
         $this->depth--;
 
-        if (isset($this->tags[$tag])) {
-            return $this->tags[$tag]->decode($value);
+        if ($this->reviver === null) {
+            return new TaggedValue($tag, $value);
         }
 
-        return $this->reviver === null
-            ? new TaggedValue($tag, $value)
-            : ($this->reviver)(new TaggedValue($tag, $value));
+        try {
+            return ($this->reviver)(new TaggedValue($tag, $value));
+        } catch (CborException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new CborException("Tag $tag at offset $start: the reviver failed: " . $e->getMessage(), $e);
+        }
     }
 
     /**
@@ -308,19 +358,22 @@ class CborDecoder
     }
 
     /**
-     * @internal Use {@see Cbor::decode()}.
-     * @param array<int, CborTag> $tags
+     * @internal Use {@see Cbor::decode()}, or {@see CborContext::decode()} in a tag handler.
+     * @param int $depth the nesting depth to start at
      * @throws CborException
      */
-    public static function decodeWith(
-        string $data,
-        bool $byteStrings,
-        int $maxDepth,
-        bool $strict,
-        ?string $stringEncoding,
-        array $tags,
-        ?Closure $reviver,
-    ): mixed {
-        return (new self($data, $byteStrings, $maxDepth, $strict, $stringEncoding, $tags, $reviver))->decodeAll();
+    public static function decodeWith(string $data, CborConfig $config, int $depth = 0): mixed
+    {
+        $decoder = new self($data);
+        $decoder->byteStrings = $config->byteStrings;
+        $decoder->maxDepth = $config->maxDepth;
+        $decoder->strict = $config->strict;
+        $decoder->stringEncoding = $config->stringEncoding;
+        $decoder->tags = $config->tagsByNumber;
+        $decoder->reviver = $config->reviver;
+        $decoder->config = $config;
+        $decoder->depth = $depth;
+
+        return $decoder->decodeAll();
     }
 }
