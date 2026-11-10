@@ -106,6 +106,31 @@ class CborDecoderOptionsTest extends TestCase
     }
 
     /**
+     * @return iterable<string, array{string, int}>
+     */
+    public static function duplicateKeys(): iterable
+    {
+        // {"role": "user", "role": "admin"}: the second key starts at offset 11.
+        yield 'the same text key' => ['a264726f6c656475736572' . '64726f6c656561646d696e', 11];
+        // {1: "a", "1": "b"}: PHP stores both as the key 1.
+        yield 'keys that PHP makes equal' => ['a2016161' . '61316162', 4];
+    }
+
+    #[DataProvider('duplicateKeys')]
+    public function testStrictRefusesDuplicateKeys(string $hex, int $offset): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage("Duplicate map key at offset $offset");
+
+        (new Cbor(strict: true))->decode(hex2bin($hex));
+    }
+
+    public function testDuplicateKeysKeepTheLastValueByDefault(): void
+    {
+        $this->assertSame(['role' => 'admin'], CborDecoder::decode(hex2bin('a264726f6c656475736572' . '64726f6c656561646d696e')));
+    }
+
+    /**
      * @return iterable<string, array{string}>
      */
     public static function scalarKeysPhpWouldChange(): iterable

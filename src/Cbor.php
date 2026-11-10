@@ -1,5 +1,8 @@
 <?php
 
+// Strict types, so that with() checks the option types as the constructor does.
+declare(strict_types=1);
+
 namespace Beau\CborPHP;
 
 use Beau\CborPHP\classes\CborConfig;
@@ -9,6 +12,7 @@ use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\interfaces\CborTag;
 use Closure;
+use ReflectionFunction;
 
 /**
  * An encoder and a decoder that share one configuration.
@@ -67,6 +71,9 @@ final class Cbor
         private readonly int $maxDepth = CborDecoder::DEFAULT_MAX_DEPTH,
         private readonly bool $strict = false,
     ) {
+        self::checkCallback($replacer, 'The replacer must take one argument, the value. A 2.x replacer took ($key, $value): remove $key');
+        self::checkCallback($reviver, 'The reviver must take one argument, the tagged value. A 2.x decoder replacer took ($key, $value): remove $key');
+
         $this->tags = array_values($tags);
         $registry = $this->tags === [] ? null : new TagRegistry($this->tags);
 
@@ -112,7 +119,8 @@ final class Cbor
 
     /**
      * Return a copy with some options changed. Give the options by name, as for the
-     * constructor. The options you leave out keep their value.
+     * constructor. The options you leave out keep their value. The types are checked as
+     * for the constructor: a value of the wrong type throws a TypeError.
      *
      * ```php
      * $strict = $cbor->with(strict: true, maxDepth: 64);
@@ -141,6 +149,19 @@ final class Cbor
     public function withTags(CborTag ...$tags): self
     {
         return $this->with(tags: [...$this->tags, ...$tags]);
+    }
+
+    /**
+     * The encoder and decoder call a callback with one argument. One that needs two, as in
+     * 2.x, would fail only when it is first called, so refuse it now.
+     *
+     * @throws CborException
+     */
+    private static function checkCallback(?Closure $callback, string $message): void
+    {
+        if ($callback !== null && (new ReflectionFunction($callback))->getNumberOfRequiredParameters() > 1) {
+            throw new CborException($message);
+        }
     }
 
     /**

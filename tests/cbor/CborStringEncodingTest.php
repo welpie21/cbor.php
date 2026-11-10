@@ -128,6 +128,30 @@ class CborStringEncodingTest extends TestCase
         $this->assertSame([$php], (new Cbor(stringEncoding: $encoding))->decode($encoded));
     }
 
+    /**
+     * @return iterable<string, array{StringEncoding, string}>
+     */
+    public static function textThatStartsLikeAByteOrderMark(): iterable
+    {
+        yield 'UTF-16, U+FEFF' => [StringEncoding::UTF16, "\u{FEFF}A"];
+        yield 'UTF-16, U+FFFE' => [StringEncoding::UTF16, "\u{FFFE}AB"];
+        yield 'UTF-32, U+FEFF' => [StringEncoding::UTF32, "\u{FEFF}A"];
+        yield 'UTF-32, U+FFFE' => [StringEncoding::UTF32, "\u{FFFE}AB"];
+    }
+
+    #[DataProvider('textThatStartsLikeAByteOrderMark')]
+    public function testTextThatStartsLikeAByteOrderMarkSurvivesARoundTrip(StringEncoding $encoding, string $text): void
+    {
+        $cbor = new Cbor(stringEncoding: $encoding);
+        $encoded = CborEncoder::encode($text);
+
+        $decoded = $cbor->decode($encoded);
+
+        // Encoding the decoded string writes the same text again.
+        $this->assertSame(bin2hex($encoded), bin2hex($cbor->encode($decoded)));
+        $this->assertSame($text, mb_convert_encoding($decoded, 'UTF-8', $encoding->value));
+    }
+
     // --- where it applies ---
 
     public function testMapKeysAreConverted(): void

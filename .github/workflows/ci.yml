@@ -8,6 +8,14 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Every PHP version that composer.json allows, so 8.1-only problems show up here.
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.1', '8.2', '8.3', '8.4', '8.5']
+
+    name: test (PHP ${{ matrix.php-version }})
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -15,7 +23,8 @@ jobs:
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          php-version: ${{ matrix.php-version }}
+          extensions: mbstring
           coverage: none
 
       - name: Install dependencies

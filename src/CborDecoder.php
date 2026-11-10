@@ -6,6 +6,7 @@ use Beau\CborPHP\classes\CborConfig;
 use Beau\CborPHP\classes\CborContext;
 use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
+use Beau\CborPHP\classes\StringConverter;
 use Beau\CborPHP\classes\TaggedValue;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\interfaces\CborTag;
@@ -168,6 +169,12 @@ class CborDecoder
                 throw new CborException("Unsupported map key of type " . get_debug_type($key) . " at offset $offset");
             }
 
+            // PHP would keep only the last value. Strict mode refuses the input instead, also
+            // for keys that only PHP makes equal, such as 1 and "1".
+            if ($this->strict && array_key_exists($key, $map)) {
+                throw new CborException("Duplicate map key at offset $offset");
+            }
+
             $value = $this->decodeNext();
             $map[$key] = $value;
         }
@@ -195,6 +202,11 @@ class CborDecoder
             }
 
             $result = mb_convert_encoding($result, $this->stringEncoding, 'UTF-8');
+
+            // Only UTF-16 and UTF-32 read a byte order mark, so only they need a check.
+            if ($this->stringEncoding === 'UTF-16' || $this->stringEncoding === 'UTF-32') {
+                $result = StringConverter::keepLeadingCharacter($result, $this->stringEncoding);
+            }
         }
 
         $this->offset += $length;

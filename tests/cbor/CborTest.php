@@ -215,6 +215,40 @@ class CborTest extends TestCase
         (new Cbor(tags: [new ConfigTestArrayTag(21, ArrayObject::class)]))->withTags(new ConfigTestArrayTag(21, ArrayIterator::class));
     }
 
+    // --- option types ---
+
+    public function testWithChecksTheTypes(): void
+    {
+        // Without the check, the non-empty string would turn strict mode on.
+        $this->expectException(TypeError::class);
+
+        (new Cbor())->with(strict: 'no');
+    }
+
+    public function testA2xReplacerIsRefused(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('The replacer must take one argument, the value. A 2.x replacer took ($key, $value): remove $key');
+
+        new Cbor(replacer: fn($key, $value) => $value);
+    }
+
+    public function testA2xReviverIsRefused(): void
+    {
+        $this->expectException(CborException::class);
+        $this->expectExceptionMessage('The reviver must take one argument, the tagged value. A 2.x decoder replacer took ($key, $value): remove $key');
+
+        (new Cbor())->with(reviver: fn($key, $value) => $value);
+    }
+
+    public function testCallbacksWithOptionalOrNoParametersAreAccepted(): void
+    {
+        $cbor = new Cbor(replacer: fn($value, $extra = null) => 'ok', reviver: fn() => 'revived');
+
+        $this->assertSame('626f6b', bin2hex($cbor->encode(new stdClass())));
+        $this->assertSame('revived', $cbor->decode(hex2bin('d86301')));
+    }
+
     // --- callbacks ---
 
     public function testCallbacksCanBeStaticClosures(): void

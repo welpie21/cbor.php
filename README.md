@@ -78,7 +78,7 @@ Give the options by name. All of them are optional:
 | `reviver`        | `null`                 | A closure that the decoder calls for a tagged value with no tag handler. See [Replacer and reviver](#replacer-and-reviver). |
 | `byteStrings`    | `false`                | Decode each byte string as a `CborByteString` instead of a plain `string`. See [Byte strings](#byte-strings). Tag handlers always get plain strings. |
 | `maxDepth`       | `512`                  | The deepest nesting of arrays, maps and tags that the encoder writes and the decoder accepts. Deeper values throw a `CborException`, rather than exhaust memory or the stack. |
-| `strict`         | `false`                | Make the decoder throw a `CborException` for bytes after the item, and for a map key that is not an `int` or a `string`. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`. |
+| `strict`         | `false`                | Make the decoder throw a `CborException` for bytes after the item, for a map key that is not an `int` or a `string`, and for a duplicate map key. Without it, PHP turns a `bool`, `float` or `null` key into an `int` or `""`, and keeps the last value of a duplicate key. |
 
 The constructor checks the options once, so `encode()` and `decode()` do not check them again. It throws a `CborException` for an invalid tag handler, or for a string encoding other than UTF-8 when the `mbstring` extension is missing.
 
@@ -102,7 +102,7 @@ $untrusted = $cbor->with(strict: true, maxDepth: 64);
 $withMoney = $cbor->withTags(new MoneyTag());
 ```
 
-A library can share its configured instance this way, and your application can add its own options to it. To remove a replacer or reviver, give `null`, for example `with(replacer: null)`.
+A library can share its configured instance this way, and your application can add its own options to it. To remove a replacer or reviver, give `null`, for example `with(replacer: null)`. `with()` checks the types as the constructor does: a value of the wrong type throws a `TypeError`.
 
 ## API
 
@@ -204,10 +204,10 @@ One instance encodes and decodes, so the decoder always returns strings in the s
 | `StringEncoding` case | Encoding of your PHP strings |
 | --------------------- | ---------------------------- |
 | `UTF8`                | UTF-8. This is the default, and `null` means the same. The library does not convert or validate strings. |
-| `UTF16`               | UTF-16. The encoder reads a byte order mark (BOM) if there is one, else big-endian. The decoder returns big-endian with no BOM. |
+| `UTF16`               | UTF-16. The encoder reads a byte order mark (BOM) if there is one, else big-endian. The decoder returns big-endian with no BOM, except before text that starts with U+FEFF or U+FFFE: there it adds a BOM, so the encoder reads the text back as it was. |
 | `UTF16BE`             | UTF-16, big-endian. |
 | `UTF16LE`             | UTF-16, little-endian. |
-| `UTF32`               | UTF-32, with the same BOM rules as `UTF16`. |
+| `UTF32`               | UTF-32, with the same BOM rules as `UTF16`. The decoder adds a BOM only before text that starts with U+FEFF. |
 | `UTF32BE`             | UTF-32, big-endian. |
 | `UTF32LE`             | UTF-32, little-endian. |
 
@@ -400,7 +400,7 @@ $cbor->decode(hex2bin('d8207368747470733a2f2f6578616d706c652e636f6d'));
 // "https://example.com"
 ```
 
-The replacer and the reviver run as normal closures. `$this` in them is your own object, and static closures work. When the reviver throws, the decoder throws a `CborException`, with your exception as the previous one.
+The replacer and the reviver run as normal closures. `$this` in them is your own object, and static closures work. When the reviver throws, the decoder throws a `CborException`, with your exception as the previous one. A closure that needs two arguments, as a 2.x replacer does, throws a `CborException` when you create the `Cbor` instance.
 
 ## Errors
 
@@ -438,7 +438,7 @@ Version 3 moves all options to `Cbor`. Without options, `CborEncoder::encode()` 
 | `CborEncoder::encode($value, $replacer)` | `(new Cbor(replacer: $replacer))->encode($value)` |
 | `CborDecoder::decode($data, $replacer)` | `(new Cbor(reviver: $reviver))->decode($data)` |
 | `CborDecoder::decode($data, byteStrings: true, maxDepth: 64, strict: true)` | `(new Cbor(byteStrings: true, maxDepth: 64, strict: true))->decode($data)` |
-| A replacer `function ($key, $value)`, where `$key` is always `null` | A replacer `function ($value)`, and a reviver `function (TaggedValue $value)` |
+| A replacer `function ($key, $value)`, where `$key` is always `null` | A replacer `function ($value)`, and a reviver `function (TaggedValue $value)`. `new Cbor()` refuses a closure that needs two arguments. |
 | A custom tag: the encoder replacer returns a `TaggedValue`, and the decoder replacer restores the object | A `CborTag` handler in `tags`. The replacer and reviver way still works. |
 | The decoder replacer gets each tagged value | The reviver gets each tagged value that has no tag handler |
 | The replacer runs bound to the encoder or decoder, so static closures fail | The replacer and reviver run as normal closures |
@@ -460,6 +460,8 @@ Run the unit tests:
 ```bash
 composer test-coverage
 ```
+
+CI runs the tests on PHP 8.1, 8.2, 8.3, 8.4 and 8.5.
 
 Run the benchmarks:
 

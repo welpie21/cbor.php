@@ -66,7 +66,7 @@ final class CborContext
             throw new CborException("Invalid UTF-8 in tag content");
         }
 
-        return mb_convert_encoding($text, $encoding, 'UTF-8');
+        return StringConverter::fromUtf8($text, $encoding);
     }
 
     /**
