@@ -1,5 +1,6 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\classes\TaggedValue;
@@ -11,7 +12,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The stringEncoding option sets the encoding of the PHP strings. CBOR text
+ * The stringEncoding option of Cbor sets the encoding of the PHP strings. CBOR text
  * strings stay UTF-8 on the wire (RFC 8949, section 3.1).
  */
 class CborStringEncodingTest extends TestCase
@@ -43,8 +44,8 @@ class CborStringEncodingTest extends TestCase
     #[DataProvider('utf8')]
     public function testNullAndUtf8AreTheDefault(?StringEncoding $encoding): void
     {
-        $this->assertSame('61ff', bin2hex(CborEncoder::encode("\xff", stringEncoding: $encoding)));
-        $this->assertSame("\xff", CborDecoder::decode(hex2bin('61ff'), stringEncoding: $encoding));
+        $this->assertSame('61ff', bin2hex((new Cbor(stringEncoding: $encoding))->encode("\xff")));
+        $this->assertSame("\xff", (new Cbor(stringEncoding: $encoding))->decode(hex2bin('61ff')));
     }
 
     // --- exact bytes ---
@@ -66,24 +67,24 @@ class CborStringEncodingTest extends TestCase
     #[DataProvider('hInEachEncoding')]
     public function testEncoderWritesUtf8(StringEncoding $encoding, string $php): void
     {
-        $this->assertSame('6368c3a9', bin2hex(CborEncoder::encode($php, stringEncoding: $encoding)));
+        $this->assertSame('6368c3a9', bin2hex((new Cbor(stringEncoding: $encoding))->encode($php)));
     }
 
     #[DataProvider('hInEachEncoding')]
     public function testDecoderReturnsTheEncoding(StringEncoding $encoding, string $php): void
     {
-        $this->assertSame(bin2hex($php), bin2hex(CborDecoder::decode(hex2bin('6368c3a9'), stringEncoding: $encoding)));
+        $this->assertSame(bin2hex($php), bin2hex((new Cbor(stringEncoding: $encoding))->decode(hex2bin('6368c3a9'))));
     }
 
     public function testUtf16ReadsAByteOrderMark(): void
     {
-        $this->assertSame('6368c3a9', bin2hex(CborEncoder::encode("\xff\xfeh\x00\xe9\x00", stringEncoding: StringEncoding::UTF16)));
-        $this->assertSame('6368c3a9', bin2hex(CborEncoder::encode("\xfe\xff\x00h\x00\xe9", stringEncoding: StringEncoding::UTF16)));
+        $this->assertSame('6368c3a9', bin2hex((new Cbor(stringEncoding: StringEncoding::UTF16))->encode("\xff\xfeh\x00\xe9\x00")));
+        $this->assertSame('6368c3a9', bin2hex((new Cbor(stringEncoding: StringEncoding::UTF16))->encode("\xfe\xff\x00h\x00\xe9")));
     }
 
     public function testUtf32ReadsAByteOrderMark(): void
     {
-        $this->assertSame('6168', bin2hex(CborEncoder::encode("\xff\xfe\x00\x00h\x00\x00\x00", stringEncoding: StringEncoding::UTF32)));
+        $this->assertSame('6168', bin2hex((new Cbor(stringEncoding: StringEncoding::UTF32))->encode("\xff\xfe\x00\x00h\x00\x00\x00")));
     }
 
     public function testTheLengthCountsUtf8Bytes(): void
@@ -91,15 +92,15 @@ class CborStringEncodingTest extends TestCase
         // 24 characters are 48 bytes in UTF-16LE, but 24 bytes in UTF-8: header 78 18.
         $php = mb_convert_encoding(str_repeat('a', 24), 'UTF-16LE', 'UTF-8');
 
-        $encoded = CborEncoder::encode($php, stringEncoding: StringEncoding::UTF16LE);
+        $encoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode($php);
 
         $this->assertSame('7818' . str_repeat('61', 24), bin2hex($encoded));
     }
 
     public function testAnEmptyStringStaysEmpty(): void
     {
-        $this->assertSame('60', bin2hex(CborEncoder::encode('', stringEncoding: StringEncoding::UTF16LE)));
-        $this->assertSame('', CborDecoder::decode(hex2bin('60'), stringEncoding: StringEncoding::UTF16LE));
+        $this->assertSame('60', bin2hex((new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode('')));
+        $this->assertSame('', (new Cbor(stringEncoding: StringEncoding::UTF16LE))->decode(hex2bin('60')));
     }
 
     // --- round trip ---
@@ -121,10 +122,10 @@ class CborStringEncodingTest extends TestCase
         $text = "Grüße, 世界 \u{1F600}";
         $php = mb_convert_encoding($text, $encoding->value, 'UTF-8');
 
-        $encoded = CborEncoder::encode([$php], stringEncoding: $encoding);
+        $encoded = (new Cbor(stringEncoding: $encoding))->encode([$php]);
 
         $this->assertSame([$text], CborDecoder::decode($encoded), 'the wire holds UTF-8');
-        $this->assertSame([$php], CborDecoder::decode($encoded, stringEncoding: $encoding));
+        $this->assertSame([$php], (new Cbor(stringEncoding: $encoding))->decode($encoded));
     }
 
     // --- where it applies ---
@@ -133,10 +134,10 @@ class CborStringEncodingTest extends TestCase
     {
         $php = ["k\x00" => "v\x00"];
 
-        $encoded = CborEncoder::encode($php, stringEncoding: StringEncoding::UTF16LE);
+        $encoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode($php);
 
         $this->assertSame('a1616b6176', bin2hex($encoded));
-        $this->assertSame($php, CborDecoder::decode($encoded, stringEncoding: StringEncoding::UTF16LE));
+        $this->assertSame($php, (new Cbor(stringEncoding: StringEncoding::UTF16LE))->decode($encoded));
     }
 
     public function testIntKeysWrittenAsTextAreNotConverted(): void
@@ -144,38 +145,38 @@ class CborStringEncodingTest extends TestCase
         // The "1" comes from the int 1, not from the caller, so it is not UTF-16.
         $map = new CborMap([1 => true], stringKeys: true);
 
-        $this->assertSame('a16131f5', bin2hex(CborEncoder::encode($map, stringEncoding: StringEncoding::UTF16LE)));
+        $this->assertSame('a16131f5', bin2hex((new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode($map)));
     }
 
     public function testIntKeysStayInts(): void
     {
-        $encoded = CborEncoder::encode([1 => "a\x00"], stringEncoding: StringEncoding::UTF16LE);
+        $encoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode([1 => "a\x00"]);
 
         $this->assertSame('a1016161', bin2hex($encoded));
     }
 
     public function testStringsInATaggedValueAreConverted(): void
     {
-        $encoded = CborEncoder::encode(new TaggedValue(32, "h\x00\xe9\x00"), stringEncoding: StringEncoding::UTF16LE);
+        $encoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode(new TaggedValue(32, "h\x00\xe9\x00"));
 
         $this->assertSame('d8206368c3a9', bin2hex($encoded));
 
-        $decoded = CborDecoder::decode($encoded, stringEncoding: StringEncoding::UTF16LE);
+        $decoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->decode($encoded);
         $this->assertSame("h\x00\xe9\x00", $decoded->value);
     }
 
     public function testByteStringsAreNotConvertedWhenEncoding(): void
     {
-        $encoded = CborEncoder::encode(new CborByteString("\xff\x00\x01"), stringEncoding: StringEncoding::UTF16LE);
+        $encoded = (new Cbor(stringEncoding: StringEncoding::UTF16LE))->encode(new CborByteString("\xff\x00\x01"));
 
         $this->assertSame('43ff0001', bin2hex($encoded));
     }
 
     public function testByteStringsAreNotConvertedWhenDecoding(): void
     {
-        $this->assertSame("\xff\x00\x01", CborDecoder::decode(hex2bin('43ff0001'), stringEncoding: StringEncoding::UTF16LE));
+        $this->assertSame("\xff\x00\x01", (new Cbor(stringEncoding: StringEncoding::UTF16LE))->decode(hex2bin('43ff0001')));
 
-        $decoded = CborDecoder::decode(hex2bin('43ff0001'), byteStrings: true, stringEncoding: StringEncoding::UTF16LE);
+        $decoded = (new Cbor(byteStrings: true, stringEncoding: StringEncoding::UTF16LE))->decode(hex2bin('43ff0001'));
         $this->assertSame("\xff\x00\x01", $decoded->getByteString());
     }
 
@@ -199,7 +200,7 @@ class CborStringEncodingTest extends TestCase
         $this->expectException(CborException::class);
         $this->expectExceptionMessage("String is not valid {$encoding->value}");
 
-        CborEncoder::encode(['ok' => $php], stringEncoding: $encoding);
+        (new Cbor(stringEncoding: $encoding))->encode(['ok' => $php]);
     }
 
     public function testDecoderRefusesInvalidUtf8WhenItConverts(): void
@@ -208,6 +209,6 @@ class CborStringEncodingTest extends TestCase
         $this->expectExceptionMessage('Invalid UTF-8 in text string at offset 4');
 
         // {"a": "\xff\x00"}
-        CborDecoder::decode(hex2bin('a1616162ff00'), stringEncoding: StringEncoding::UTF16LE);
+        (new Cbor(stringEncoding: StringEncoding::UTF16LE))->decode(hex2bin('a1616162ff00'));
     }
 }

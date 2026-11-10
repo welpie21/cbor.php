@@ -1,14 +1,38 @@
 <?php
 
-use Beau\CborPHP\CborDecoder;
-use Beau\CborPHP\CborEncoder;
-use Beau\CborPHP\classes\TaggedValue;
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\exceptions\CborException;
+use Beau\CborPHP\interfaces\CborTag;
 use PHPUnit\Framework\TestCase;
 
 class UUIDClass
 {
     public string $uuid = "550e8400-e29b-41d4-a716-446655440000";
+}
+
+class UUIDTag implements CborTag
+{
+    public function tag(): int
+    {
+        return 7;
+    }
+
+    public function class(): string
+    {
+        return UUIDClass::class;
+    }
+
+    public function encode(object $value): string
+    {
+        return $value->uuid;
+    }
+
+    public function decode(mixed $content): UUIDClass
+    {
+        $uuid = new UUIDClass();
+        $uuid->uuid = $content;
+        return $uuid;
+    }
 }
 
 class CborTaggedValueTest extends TestCase
@@ -20,26 +44,11 @@ class CborTaggedValueTest extends TestCase
     {
 
         $uuid = new UUIDClass();
+        $cbor = new Cbor(tags: [new UUIDTag()]);
 
-        $encode = CborEncoder::encode($uuid, function ($key, $value) {
+        $encode = $cbor->encode($uuid);
 
-            if ($value instanceof UUIDClass) {
-                return new TaggedValue(7, $value->uuid);
-            }
-
-            return $value;
-        });
-
-        $decode = CborDecoder::decode($encode, function ($key, $value) {
-
-            if($value instanceof TaggedValue && $value->tag === 7) {
-                $uuid = new UUIDClass();
-                $uuid->uuid = $value->value;
-                return $uuid;
-            }
-
-            return $value;
-        });
+        $decode = $cbor->decode($encode);
 
         $this->assertTrue($decode instanceof UUIDClass);
         $this->assertEquals($uuid->uuid, $decode->uuid);

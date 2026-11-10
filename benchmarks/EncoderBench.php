@@ -1,13 +1,32 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\enums\StringEncoding;
+use PhpBench\Attributes\BeforeMethods;
 use PhpBench\Attributes\Iterations;
 use PhpBench\Attributes\Revs;
 use PhpBench\Attributes\Warmup;
 
+require_once __DIR__ . '/Fixtures.php';
+
+#[BeforeMethods('setUp')]
 class EncoderBench
 {
+    private Cbor $utf16;
+    private Cbor $tagHandler;
+    private Cbor $replacer;
+    /** @var list<BenchMoney> */
+    private array $money;
+
+    public function setUp(): void
+    {
+        $this->utf16 = new Cbor(stringEncoding: StringEncoding::UTF16LE);
+        $this->tagHandler = new Cbor(tags: [new BenchMoneyTag()]);
+        $this->replacer = new Cbor(replacer: BenchFixtures::moneyReplacer());
+        $this->money = BenchFixtures::money();
+    }
+
     #[Revs(1000), Iterations(5), Warmup(2)]
     public function benchEncodeSmallInt(): void
     {
@@ -48,7 +67,21 @@ class EncoderBench
     public function benchEncodeStringUtf16(): void
     {
         // "Hello, World!" in UTF-16LE.
-        CborEncoder::encode("H\0e\0l\0l\0o\0,\0 \0W\0o\0r\0l\0d\0!\0", stringEncoding: StringEncoding::UTF16LE);
+        $this->utf16->encode("H\0e\0l\0l\0o\0,\0 \0W\0o\0r\0l\0d\0!\0");
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchEncodeTagHandler(): void
+    {
+        // Ten objects, each written with tag 20 by a CborTag handler.
+        $this->tagHandler->encode($this->money);
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchEncodeReplacer(): void
+    {
+        // The same ten objects and tag, written by a replacer that returns a TaggedValue.
+        $this->replacer->encode($this->money);
     }
 
     #[Revs(1000), Iterations(5), Warmup(2)]

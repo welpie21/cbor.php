@@ -1,5 +1,6 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\classes\TaggedValue;
@@ -19,7 +20,7 @@ class CborDecoderOptionsTest extends TestCase
 
     public function testByteStringsCanDecodeAsCborByteString(): void
     {
-        $decoded = CborDecoder::decode(hex2bin('4200ff'), byteStrings: true);
+        $decoded = (new Cbor(byteStrings: true))->decode(hex2bin('4200ff'));
 
         $this->assertInstanceOf(CborByteString::class, $decoded);
         $this->assertSame("\x00\xff", $decoded->getByteString());
@@ -27,14 +28,14 @@ class CborDecoderOptionsTest extends TestCase
 
     public function testTextStringsStayStringsWithByteStrings(): void
     {
-        $this->assertSame('hi', CborDecoder::decode(hex2bin('626869'), byteStrings: true));
+        $this->assertSame('hi', (new Cbor(byteStrings: true))->decode(hex2bin('626869')));
     }
 
     public function testNestedByteStringsRoundTrip(): void
     {
         $value = ['a' => new CborByteString("\x01\x02"), 'b' => [new TaggedValue(37, new CborByteString(str_repeat("\x00", 16)))]];
 
-        $decoded = CborDecoder::decode(CborEncoder::encode($value), byteStrings: true);
+        $decoded = (new Cbor(byteStrings: true))->decode(CborEncoder::encode($value));
 
         $this->assertEquals($value, $decoded);
     }
@@ -78,10 +79,10 @@ class CborDecoderOptionsTest extends TestCase
 
     public function testTheLimitCanBeChanged(): void
     {
-        $this->assertSame([[1]], CborDecoder::decode(hex2bin('818101'), maxDepth: 2));
+        $this->assertSame([[1]], (new Cbor(maxDepth: 2))->decode(hex2bin('818101')));
 
         $this->expectException(CborException::class);
-        CborDecoder::decode(hex2bin('818101'), maxDepth: 1);
+        (new Cbor(maxDepth: 1))->decode(hex2bin('818101'));
     }
 
     // --- strict ---
@@ -96,12 +97,12 @@ class CborDecoderOptionsTest extends TestCase
         $this->expectException(CborException::class);
         $this->expectExceptionMessage('Unexpected data after the item at offset 1');
 
-        CborDecoder::decode(hex2bin('0102'), strict: true);
+        (new Cbor(strict: true))->decode(hex2bin('0102'));
     }
 
     public function testStrictAcceptsExactlyOneItem(): void
     {
-        $this->assertSame(['a' => 1, 2 => 'b'], CborDecoder::decode(hex2bin('a2616101026162'), strict: true));
+        $this->assertSame(['a' => 1, 2 => 'b'], (new Cbor(strict: true))->decode(hex2bin('a2616101026162')));
     }
 
     /**
@@ -120,7 +121,7 @@ class CborDecoderOptionsTest extends TestCase
         $this->expectException(CborException::class);
         $this->expectExceptionMessage('Unsupported map key');
 
-        CborDecoder::decode(hex2bin($hex), strict: true);
+        (new Cbor(strict: true))->decode(hex2bin($hex));
     }
 
     public function testBoolKeysStillBecomeIntsByDefault(): void
@@ -153,6 +154,6 @@ class CborDecoderOptionsTest extends TestCase
         $this->assertSame(['k' => 1], CborDecoder::decode(hex2bin('a1416b01')));
 
         $this->expectException(CborException::class);
-        CborDecoder::decode(hex2bin('a1416b01'), byteStrings: true);
+        (new Cbor(byteStrings: true))->decode(hex2bin('a1416b01'));
     }
 }

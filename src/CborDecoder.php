@@ -5,8 +5,8 @@ namespace Beau\CborPHP;
 use Beau\CborPHP\classes\FloatHelper;
 use Beau\CborPHP\classes\IntHelper;
 use Beau\CborPHP\classes\TaggedValue;
-use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\exceptions\CborException;
+use Beau\CborPHP\interfaces\CborTag;
 use Beau\CborPHP\utils\CborByteString;
 use Closure;
 
@@ -18,7 +18,6 @@ class CborDecoder
     private string $buffer;
     private int $length;
     private int $offset;
-    private Closure $replacer;
     private int $depth = 0;
 
     private static array $byteLength = [
@@ -28,20 +27,26 @@ class CborDecoder
         27 => 8
     ];
 
+    /**
+     * One decoder reads one item. Use {@see CborDecoder::decode()}, or
+     * {@see Cbor::decode()} for options.
+     *
+     * @param ?string $stringEncoding the mbstring name of the encoding to convert text
+     *                                strings to, or null for UTF-8 (no conversion)
+     * @param array<int, CborTag> $tags tag handlers by tag number
+     */
     private function __construct(
         string $buffer,
-        ?Closure $replacer,
-        private readonly bool $byteStrings,
-        private readonly int $maxDepth,
-        private readonly bool $strict,
-        /** The mbstring name of the encoding to convert text strings to, or null for UTF-8 (no conversion). */
-        private readonly ?string $stringEncoding,
+        private readonly bool $byteStrings = false,
+        private readonly int $maxDepth = self::DEFAULT_MAX_DEPTH,
+        private readonly bool $strict = false,
+        private readonly ?string $stringEncoding = null,
+        private readonly array $tags = [],
+        private readonly ?Closure $reviver = null,
     ) {
         $this->offset = 0;
         $this->buffer = $buffer;
         $this->length = strlen($buffer);
-
-        $this->replacer = $replacer ?? fn($key, $value) => $value;
     }
 
     /**
@@ -203,7 +208,13 @@ class CborDecoder
         $value = $this->decodeNext();
         $this->depth--;
 
-        return $this->replacer->call($this, null, new TaggedValue($tag, $value));
+        if (isset($this->tags[$tag])) {
+            return $this->tags[$tag]->decode($value);
+        }
+
+        return $this->reviver === null
+            ? new TaggedValue($tag, $value)
+            : ($this->reviver)(new TaggedValue($tag, $value));
     }
 
     /**
@@ -264,48 +275,52 @@ class CborDecoder
     }
 
     /**
+     * Decode the item, and in strict mode refuse bytes after it.
+     *
      * @throws CborException
      */
-    public function decodeItem(): mixed
+    private function decodeAll(): mixed
     {
-        return $this->decodeNext();
-    }
+        $value = $this->decodeNext();
 
-    /**
-     * @param bool $byteStrings return a byte string as a {@see CborByteString}, so it can
-     *                          be told apart from a text string, instead of a plain string
-     * @param int $maxDepth the deepest nesting of arrays, maps and tags to accept
-     * @param bool $strict refuse bytes after the item, and map keys other than an int or
-     *                     a string
-     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings to return for
-     *                                        text strings, which are UTF-8 in CBOR. Null
-     *                                        means UTF-8.
-     * @throws CborException
-     */
-    public static function decode(
-        string $data,
-        ?Closure $replacer = null,
-        bool $byteStrings = false,
-        int $maxDepth = self::DEFAULT_MAX_DEPTH,
-        bool $strict = false,
-        // Null, not StringEncoding::UTF8: PHP evaluates an enum default on every call.
-        ?StringEncoding $stringEncoding = null,
-    ): mixed {
-        if ($stringEncoding !== null) {
-            if ($stringEncoding === StringEncoding::UTF8) {
-                $stringEncoding = null;
-            } elseif (!function_exists('mb_convert_encoding')) {
-                throw new CborException("The mbstring extension is required for stringEncoding {$stringEncoding->value}");
-            }
-        }
-
-        $decoder = new CborDecoder($data, $replacer, $byteStrings, $maxDepth, $strict, $stringEncoding?->value);
-        $value = $decoder->decodeItem();
-
-        if ($strict && $decoder->offset !== $decoder->length) {
-            throw new CborException("Unexpected data after the item at offset {$decoder->offset}");
+        if ($this->strict && $this->offset !== $this->length) {
+            throw new CborException("Unexpected data after the item at offset {$this->offset}");
         }
 
         return $value;
+    }
+
+    /**
+     * Decode one CBOR item with the default options: UTF-8 strings, byte strings as plain
+     * strings, nesting up to {@see CborDecoder::DEFAULT_MAX_DEPTH}, bytes after the item
+     * ignored, and each tagged value as a {@see TaggedValue}. For options, use {@see Cbor}.
+     *
+     * @throws CborException
+     */
+    public static function decode(string $data): mixed
+    {
+        // Before 3.0 this took a replacer and options. PHP ignores extra arguments, so say so loudly.
+        if (func_num_args() > 1) {
+            throw new CborException("CborDecoder::decode() takes only the data. Give options to new Cbor(...) instead");
+        }
+
+        return (new self($data))->decodeAll();
+    }
+
+    /**
+     * @internal Use {@see Cbor::decode()}.
+     * @param array<int, CborTag> $tags
+     * @throws CborException
+     */
+    public static function decodeWith(
+        string $data,
+        bool $byteStrings,
+        int $maxDepth,
+        bool $strict,
+        ?string $stringEncoding,
+        array $tags,
+        ?Closure $reviver,
+    ): mixed {
+        return (new self($data, $byteStrings, $maxDepth, $strict, $stringEncoding, $tags, $reviver))->decodeAll();
     }
 }

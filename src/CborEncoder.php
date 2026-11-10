@@ -2,9 +2,9 @@
 
 namespace Beau\CborPHP;
 
+use Beau\CborPHP\classes\TagRegistry;
 use Beau\CborPHP\exceptions\CborException;
 use Beau\CborPHP\abstracts\AbstractTaggedValue;
-use Beau\CborPHP\enums\StringEncoding;
 use Beau\CborPHP\utils\CborByteString;
 use Beau\CborPHP\utils\CborMap;
 use Closure;
@@ -12,10 +12,6 @@ use Closure;
 class CborEncoder
 {
     private string $buffer = "";
-    private Closure $replacer;
-
-    /** The mbstring name of the encoding to convert strings from, or null for UTF-8 (no conversion). */
-    private ?string $stringEncoding = null;
 
     private static array $lengthPackType = [
         24 => "C",
@@ -24,27 +20,17 @@ class CborEncoder
     ];
 
     /**
-     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings in $value,
-     *                                        converted to UTF-8. Null means UTF-8.
-     * @throws CborException
+     * One encoder writes one value. Use {@see CborEncoder::encode()}, or
+     * {@see Cbor::encode()} for options.
+     *
+     * @param ?string $stringEncoding the mbstring name of the encoding to convert strings
+     *                                from, or null for UTF-8 (no conversion)
      */
-    public function __construct(
-        mixed $value,
-        ?Closure $replacer = null,
-        // Null, not StringEncoding::UTF8: PHP evaluates an enum default on every call.
-        ?StringEncoding $stringEncoding = null,
+    private function __construct(
+        private readonly ?string $stringEncoding = null,
+        private readonly ?TagRegistry $tags = null,
+        private readonly ?Closure $replacer = null,
     ) {
-        $this->replacer = $replacer ?? fn($key, $value) => $value;
-
-        if ($stringEncoding !== null && $stringEncoding !== StringEncoding::UTF8) {
-            if (!function_exists('mb_convert_encoding')) {
-                throw new CborException("The mbstring extension is required for stringEncoding {$stringEncoding->value}");
-            }
-
-            $this->stringEncoding = $stringEncoding->value;
-        }
-
-        $this->encodeItem($value);
     }
 
     private function packInitialByte(int $majorType, int $additionalInfo): void
@@ -200,11 +186,40 @@ class CborEncoder
     }
 
     /**
-     * @return string
+     * Write an object that has no built-in mapping: with its tag handler if it has
+     * one, else as the value the replacer returns.
+     *
+     * @param bool $replaced Whether $value was returned by the replacer. A replaced
+     *                       value must be encodable, so the replacer is not called again.
+     * @throws CborException
      */
-    private function getResult(): string
+    private function encodeOther(mixed $value, bool $replaced): void
     {
-        return $this->buffer;
+        if ($this->tags !== null && is_object($value)) {
+            $tags = $this->tags;
+            // Remember the answer for each class, also when there is no handler.
+            $entry = $tags->byClass[$value::class] ??= $tags->find($value);
+
+            if ($entry !== false) {
+                [$tag, $handler] = $entry;
+                $content = $handler->encode($value);
+
+                // Encoding the object itself again would never end.
+                if ($content === $value) {
+                    throw new CborException(get_debug_type($handler) . "::encode() returned the object itself. Return the tag content instead");
+                }
+
+                $this->packNumber(6 << 5, $tag);
+                $this->encodeItem($content);
+                return;
+            }
+        }
+
+        if ($replaced || $this->replacer === null) {
+            throw new CborException("Unsupported type: " . get_debug_type($value));
+        }
+
+        $this->encodeItem(($this->replacer)($value), true);
     }
 
     /**
@@ -248,26 +263,36 @@ class CborEncoder
                 $this->encodeMap($value->entries, $value->stringKeys);
                 break;
             default:
-                if ($replaced) {
-                    throw new CborException("Unsupported type: " . get_debug_type($value));
-                }
-
-                $this->encodeItem($this->replacer->call($this, null, $value), true);
+                $this->encodeOther($value, $replaced);
         }
     }
 
     /**
-     * @param ?StringEncoding $stringEncoding the encoding of the PHP strings in $value,
-     *                                        converted to UTF-8 as CBOR requires. Null
-     *                                        means UTF-8.
+     * Encode a value with the default options: UTF-8 strings, no tag handlers and no
+     * replacer. For options, use {@see Cbor}.
+     *
      * @throws CborException
      */
-    public static function encode(
-        mixed $value,
-        ?Closure $replacer = null,
-        ?StringEncoding $stringEncoding = null,
-    ): string {
-        $encoder = new self($value, $replacer, $stringEncoding);
-        return $encoder->getResult();
+    public static function encode(mixed $value): string
+    {
+        // Before 3.0 this took a replacer. PHP ignores extra arguments, so say so loudly.
+        if (func_num_args() > 1) {
+            throw new CborException("CborEncoder::encode() takes only the value. Give options to new Cbor(...) instead");
+        }
+
+        $encoder = new self();
+        $encoder->encodeItem($value);
+        return $encoder->buffer;
+    }
+
+    /**
+     * @internal Use {@see Cbor::encode()}.
+     * @throws CborException
+     */
+    public static function encodeWith(mixed $value, ?string $stringEncoding, ?TagRegistry $tags, ?Closure $replacer): string
+    {
+        $encoder = new self($stringEncoding, $tags, $replacer);
+        $encoder->encodeItem($value);
+        return $encoder->buffer;
     }
 }
