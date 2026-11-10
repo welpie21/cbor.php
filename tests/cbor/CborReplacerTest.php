@@ -1,5 +1,6 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\classes\TaggedValue;
@@ -12,12 +13,12 @@ class CborCustomType
 }
 
 /**
- * Tests for the encoder and decoder replacer/reviver callback mechanism.
+ * Tests for the encoder replacer and the decoder reviver callbacks.
  *
- * - Encoder replacer: called for values that don't have a native CBOR type,
- *   allowing them to be converted to an encodable type.
- * - Decoder replacer: called for every tagged value (major type 6),
- *   allowing custom deserialization of tagged CBOR values.
+ * - Replacer: called for values that don't have a native CBOR type or a tag
+ *   handler, allowing them to be converted to an encodable type.
+ * - Reviver: called for every tagged value (major type 6) without a tag
+ *   handler, allowing custom deserialization of tagged CBOR values.
  */
 class CborReplacerTest extends TestCase
 {
@@ -28,12 +29,12 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("hello");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return $value->value;
             }
             return $value;
-        });
+        }))->encode($value);
 
         $decoded = CborDecoder::decode($encoded);
         $this->assertSame("hello", $decoded);
@@ -46,12 +47,12 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("irrelevant");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return null;
             }
             return $value;
-        });
+        }))->encode($value);
 
         $decoded = CborDecoder::decode($encoded);
         $this->assertNull($decoded);
@@ -64,12 +65,12 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("42");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return (int)$value->value;
             }
             return $value;
-        });
+        }))->encode($value);
 
         $decoded = CborDecoder::decode($encoded);
         $this->assertSame(42, $decoded);
@@ -82,12 +83,12 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("data");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return ["type" => "custom", "data" => $value->value];
             }
             return $value;
-        });
+        }))->encode($value);
 
         $decoded = CborDecoder::decode($encoded);
         $this->assertEquals(["type" => "custom", "data" => "data"], $decoded);
@@ -100,12 +101,12 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("hello");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return new TaggedValue(10, $value->value);
             }
             return $value;
-        });
+        }))->encode($value);
 
         $decoded = CborDecoder::decode($encoded);
         $this->assertInstanceOf(TaggedValue::class, $decoded);
@@ -120,19 +121,19 @@ class CborReplacerTest extends TestCase
     {
         $value = new CborCustomType("hello");
 
-        $encoded = CborEncoder::encode($value, function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType) {
                 return new TaggedValue(10, $value->value);
             }
             return $value;
-        });
+        }))->encode($value);
 
-        $decoded = CborDecoder::decode($encoded, function ($key, $value) {
+        $decoded = (new Cbor(reviver: function ($value) {
             if ($value instanceof TaggedValue && $value->tag === 10) {
                 return new CborCustomType($value->value);
             }
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertInstanceOf(CborCustomType::class, $decoded);
         $this->assertSame("hello", $decoded->value);
@@ -145,12 +146,12 @@ class CborReplacerTest extends TestCase
     {
         $encoded = CborEncoder::encode(new TaggedValue(10, "test"));
 
-        $decoded = CborDecoder::decode($encoded, function ($key, $value) {
+        $decoded = (new Cbor(reviver: function ($value) {
             if ($value instanceof TaggedValue && $value->tag === 10) {
                 return strtoupper($value->value);
             }
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertSame("TEST", $decoded);
     }
@@ -163,10 +164,10 @@ class CborReplacerTest extends TestCase
         $replacerCalled = false;
 
         $encoded = CborEncoder::encode("plain string");
-        $decoded = CborDecoder::decode($encoded, function ($key, $value) use (&$replacerCalled) {
+        $decoded = (new Cbor(reviver: function ($value) use (&$replacerCalled) {
             $replacerCalled = true;
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertFalse($replacerCalled, "Decoder replacer should only be called for tagged values");
         $this->assertSame("plain string", $decoded);
@@ -180,10 +181,10 @@ class CborReplacerTest extends TestCase
         $replacerCalled = false;
 
         $encoded = CborEncoder::encode(42);
-        $decoded = CborDecoder::decode($encoded, function ($key, $value) use (&$replacerCalled) {
+        $decoded = (new Cbor(reviver: function ($value) use (&$replacerCalled) {
             $replacerCalled = true;
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertFalse($replacerCalled);
         $this->assertSame(42, $decoded);
@@ -197,12 +198,12 @@ class CborReplacerTest extends TestCase
         $replacerCalled = false;
 
         $encoded = CborEncoder::encode([1, new TaggedValue(0, "ts"), 2]);
-        $decoded = CborDecoder::decode($encoded, function ($key, $value) use (&$replacerCalled) {
+        $decoded = (new Cbor(reviver: function ($value) use (&$replacerCalled) {
             if ($value instanceof TaggedValue) {
                 $replacerCalled = true;
             }
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertTrue($replacerCalled, "Replacer should be called for tagged values inside arrays");
         $this->assertSame(1, $decoded[0]);
@@ -216,8 +217,9 @@ class CborReplacerTest extends TestCase
     {
         $value = 42;
 
-        $encoded = CborEncoder::encode($value, null);
-        $decoded = CborDecoder::decode($encoded, null);
+        $cbor = new Cbor(replacer: null, reviver: null);
+        $encoded = $cbor->encode($value);
+        $decoded = $cbor->decode($encoded);
 
         $this->assertSame(42, $decoded);
     }
@@ -230,12 +232,12 @@ class CborReplacerTest extends TestCase
         $receivedTag = null;
 
         $encoded = CborEncoder::encode(new TaggedValue(15, "data"));
-        CborDecoder::decode($encoded, function ($key, $value) use (&$receivedTag) {
+        (new Cbor(reviver: function ($value) use (&$receivedTag) {
             if ($value instanceof TaggedValue) {
                 $receivedTag = $value->tag;
             }
             return $value;
-        });
+        }))->decode($encoded);
 
         $this->assertSame(15, $receivedTag);
     }
@@ -267,7 +269,7 @@ class CborReplacerTest extends TestCase
     {
         $this->expectException(CborException::class);
         $this->expectExceptionMessage("Unsupported type: CborCustomType");
-        CborEncoder::encode(new CborCustomType("hello"), fn($key, $value) => $value);
+        (new Cbor(replacer: fn($value) => $value))->encode(new CborCustomType("hello"));
     }
 
     /**
@@ -277,7 +279,7 @@ class CborReplacerTest extends TestCase
     {
         $this->expectException(CborException::class);
         $this->expectExceptionMessage("Unsupported type: stdClass");
-        CborEncoder::encode(new CborCustomType("hello"), fn($key, $value) => new stdClass());
+        (new Cbor(replacer: fn($value) => new stdClass()))->encode(new CborCustomType("hello"));
     }
 
     /**
@@ -287,7 +289,7 @@ class CborReplacerTest extends TestCase
     {
         // The replacer's return value must be encodable, but values nested
         // inside a returned array are passed to the replacer again.
-        $encoded = CborEncoder::encode(new CborCustomType("outer"), function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             if ($value instanceof CborCustomType && $value->value === "outer") {
                 return [new CborCustomType("inner")];
             }
@@ -295,7 +297,7 @@ class CborReplacerTest extends TestCase
                 return $value->value;
             }
             return $value;
-        });
+        }))->encode(new CborCustomType("outer"));
 
         $this->assertSame(["inner"], CborDecoder::decode($encoded));
     }

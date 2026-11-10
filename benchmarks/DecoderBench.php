@@ -1,15 +1,23 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
+use Beau\CborPHP\enums\StringEncoding;
 use PhpBench\Attributes\BeforeMethods;
 use PhpBench\Attributes\Iterations;
 use PhpBench\Attributes\Revs;
 use PhpBench\Attributes\Warmup;
 
+require_once __DIR__ . '/Fixtures.php';
+
 #[BeforeMethods('setUp')]
 class DecoderBench
 {
+    private Cbor $utf16;
+    private Cbor $tagHandler;
+    private Cbor $reviver;
+    private string $encodedMoney;
     private string $encodedSmallInt;
     private string $encodedNegativeInt;
     private string $encodedLargeInt;
@@ -25,6 +33,10 @@ class DecoderBench
 
     public function setUp(): void
     {
+        $this->utf16 = new Cbor(stringEncoding: StringEncoding::UTF16LE);
+        $this->tagHandler = new Cbor(tags: [new BenchMoneyTag()]);
+        $this->reviver = new Cbor(reviver: BenchFixtures::moneyReviver());
+        $this->encodedMoney = $this->tagHandler->encode(BenchFixtures::money());
         $this->encodedSmallInt = CborEncoder::encode(42);
         $this->encodedNegativeInt = CborEncoder::encode(-100);
         $this->encodedLargeInt = CborEncoder::encode(1000000);
@@ -86,6 +98,26 @@ class DecoderBench
     public function benchDecodeLargeString(): void
     {
         CborDecoder::decode($this->encodedLargeString);
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchDecodeStringUtf16(): void
+    {
+        $this->utf16->decode($this->encodedString);
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchDecodeTagHandler(): void
+    {
+        // Ten values with tag 20, read by a CborTag handler.
+        $this->tagHandler->decode($this->encodedMoney);
+    }
+
+    #[Revs(1000), Iterations(5), Warmup(2)]
+    public function benchDecodeReviver(): void
+    {
+        // The same ten values, read by a reviver.
+        $this->reviver->decode($this->encodedMoney);
     }
 
     #[Revs(1000), Iterations(5), Warmup(2)]

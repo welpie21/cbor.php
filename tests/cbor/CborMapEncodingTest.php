@@ -1,5 +1,6 @@
 <?php
 
+use Beau\CborPHP\Cbor;
 use Beau\CborPHP\CborDecoder;
 use Beau\CborPHP\CborEncoder;
 use Beau\CborPHP\utils\CborMap;
@@ -43,9 +44,9 @@ class CborMapEncodingTest extends TestCase
 
     public function testMapValuesGoThroughTheReplacer(): void
     {
-        $encoded = CborEncoder::encode(new CborMap(['when' => new DateTimeImmutable('@0')]), function ($key, $value) {
+        $encoded = (new Cbor(replacer: function ($value) {
             return $value instanceof DateTimeInterface ? $value->getTimestamp() : $value;
-        });
+        }))->encode(new CborMap(['when' => new DateTimeImmutable('@0')]));
 
         $this->assertSame('a1647768656e00', bin2hex($encoded));
     }

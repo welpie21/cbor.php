@@ -4,9 +4,12 @@
     "homepage": "https://github.com/welpie21/cbor.php",
     "description": "A CBOR encoder/decoder for PHP",
     "keywords": ["cbor", "cbor-php", "cbor-encoder", "cbor-decoder"],
-    "version": "2.2.0",
+    "version": "3.0.0",
     "require": {
         "php": ">=8.1"
+    },
+    "suggest": {
+        "ext-mbstring": "Required for a stringEncoding other than UTF-8"
     },
     "license": "MIT",
     "autoload": {
